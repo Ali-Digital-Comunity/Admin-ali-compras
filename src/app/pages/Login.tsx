@@ -31,6 +31,11 @@ export function Login() {
         // Optional: Save user info if available
         if (response.data.user) {
           localStorage.setItem('user', JSON.stringify(response.data.user));
+          
+          if (response.data.user.perfil === 'entregador') {
+            navigate('/driver');
+            return;
+          }
         }
 
         navigate('/dashboard');
@@ -171,6 +176,16 @@ export function Login() {
                 ) : 'Entrar no Painel'}
               </button>
             </form>
+            <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+              <button 
+                onClick={() => navigate('/driver')}
+                className="text-sm font-bold hover:underline flex items-center justify-center gap-1.5 w-full transition-all"
+                style={{ color: PRIMARY }}
+              >
+                Acessar Minhas Entregas
+                <span className="text-lg">→</span>
+              </button>
+            </div>
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">

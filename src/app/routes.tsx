@@ -16,11 +16,22 @@ import { Users } from './pages/Users';
 import { SystemPermissions } from './pages/SystemPermissions';
 import { Settings } from './pages/Settings';
 import { Notifications } from './pages/Notifications';
+import { DriverLayout } from './components/DriverLayout';
+import { MyDeliveries } from './pages/driver/MyDeliveries';
+import { RouteDetail } from './pages/driver/RouteDetail';
 
 export const router = createBrowserRouter([
   {
     path: '/login',
     Component: Login,
+  },
+  {
+    path: '/driver',
+    Component: DriverLayout,
+    children: [
+      { index: true, element: <MyDeliveries /> },
+      { path: 'route/:id', Component: RouteDetail },
+    ],
   },
   {
     path: '/',

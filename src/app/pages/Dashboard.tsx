@@ -78,6 +78,22 @@ export function Dashboard() {
   const topProducts = metrics?.topProdutos || [];
   const alerts = metrics?.alertas || [];
 
+  const user = (() => {
+    try {
+      const userJson = localStorage.getItem('user');
+      return userJson ? JSON.parse(userJson) : null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  const greeting = (() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  })();
+
   return (
     <div className="p-5 max-w-screen-xl mx-auto overflow-y-auto flex-1 h-full m-[0px]">
       {/* Welcome bar */}
@@ -89,7 +105,9 @@ export function Dashboard() {
           <div className="text-white/70 text-xs mb-0.5">
             {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
-          <h2 className="text-white font-semibold">Bom dia, Admin! Aqui está o resumo da sua operação.</h2>
+          <h2 className="text-white font-semibold">
+            {greeting}, {user?.nome?.split(' ')[0] || 'Administrador'}. Boas vindas!
+          </h2>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-white/10 rounded-lg p-1 text-sm">

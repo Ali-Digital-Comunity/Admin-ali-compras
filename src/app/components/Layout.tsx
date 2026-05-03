@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router';
+import { Outlet, useNavigate, useLocation, Navigate } from 'react-router';
 import {
-  LayoutDashboard, ShoppingCart, Package, Grid3X3, Tag, Image, Users, Truck,
+  LayoutDashboard, ShoppingCart, Package,  Grid3X3, Tag, Image, Users, Truck,
   Ticket, CreditCard, BarChart3, UserCog, Settings, Bell, Menu, X, LogOut,
-  ChevronRight, Store, Key
+  ChevronRight, Store, Key, ClipboardList, Bike
 } from 'lucide-react';
 import { notifications } from '../data/mockData';
 import api from '../services/api';
@@ -14,6 +14,7 @@ const PRIMARY_LIGHTER = '#1e4d87';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', slug: 'dashboard' },
+  { label: 'Minhas Entregas', icon: Bike, path: '/driver', slug: 'entregadores' },
   { label: 'Pedidos', icon: ShoppingCart, path: '/orders', slug: 'pedidos' },
   { label: 'Produtos', icon: Package, path: '/products', slug: 'produtos' },
   { label: 'Categorias', icon: Grid3X3, path: '/categories', slug: 'categorias' },
@@ -47,6 +48,10 @@ export function Layout() {
       return null;
     }
   })();
+
+  if (user?.perfil === 'entregador') {
+    return <Navigate to="/driver" replace />;
+  }
   
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -99,6 +104,12 @@ export function Layout() {
         <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
           {navItems
             .filter(item => {
+              if (user?.perfil === 'entregador') {
+                return item.path === '/driver';
+              }
+              // Hide "Minhas Entregas" from non-drivers to keep sidebar clean
+              if (item.path === '/driver') return false;
+
               if (user?.perfil === 'superadmin' || user?.perfil === 'administrador') return true;
               return user?.permissions?.includes(item.slug);
             })
