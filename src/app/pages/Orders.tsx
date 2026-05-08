@@ -60,6 +60,57 @@ const extractBairro = (address: string) => {
   return parts.length > 1 ? parts[1].trim() : 'Não informado';
 };
 
+const getApiList = (payload: any): any[] => {
+  const data = payload?.data;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(payload)) return payload;
+  return [];
+};
+
+const getBackendStatus = (status: string) => {
+  const mapped = Object.entries(statusLabels).find(([, label]) => label === status);
+  if (mapped) return mapped[0];
+
+  return status
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+};
+
+const canChangeDeliveryCourier = (delivery: any) => (
+  !delivery || ['aguardando', 'atribuida'].includes(delivery.status)
+);
+
+const isDeliveryOrder = (order: any) => (
+  (order?.tipo_pedido || order?.type || '').toLowerCase() === 'entrega'
+);
+
+const getOrderNeighborhood = (order: any) => (
+  order.endereco_cliente?.bairro || extractBairro(order.address || '')
+);
+
+const getOrderAddress = (order: any) => {
+  const address = order.endereco_cliente;
+  if (!address) return order.address || 'Endereço não informado';
+  return [address.logradouro || address.rua, address.numero].filter(Boolean).join(', ');
+};
+
+const getDeliveryLabel = (route: any) => {
+  if (route.status === 'completed') return 'Concluída';
+  if (route.status === 'canceled') return 'Cancelada';
+  if (!route.optimized) return 'Aguardando rota';
+  if (route.status === 'in_progress') return 'Em andamento';
+  return 'Rota gerada';
+};
+
+const getApiErrorMessage = (error: any, fallback: string) => (
+  error?.response?.data?.message ||
+  error?.response?.data?.error ||
+  fallback
+);
+
 // Print comanda for a single order
 const printComanda = (order: any, orderItems: any[] = orderItemsMock) => {
   const subtotal = orderItems.reduce((a, i) => a + (i.price_unit * i.quantity || i.price * i.qty), 0);
@@ -210,15 +261,20 @@ export function Orders() {
   const [expandedBairros, setExpandedBairros] = useState<Record<string, boolean>>({});
   const [couriers, setCouriers] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
+  const [deliveryRecords, setDeliveryRecords] = useState<any[]>([]);
   const [currentDelivery, setCurrentDelivery] = useState<any | null>(null);
+  const [editingCourier, setEditingCourier] = useState(false);
   const [assigningCourier, setAssigningCourier] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
-  // Route creation modal state
-  const [routeModalBairro, setRouteModalBairro] = useState<string | null>(null);
+  const [deliveryModalOrders, setDeliveryModalOrders] = useState<any[] | null>(null);
   const [routeDriverId, setRouteDriverId] = useState('');
-  const [creatingRoute, setCreatingRoute] = useState(false);
-  const [routeSuccess, setRouteSuccess] = useState<string | null>(null);
+  const [openRoutes, setOpenRoutes] = useState<any[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState('');
+  const [confirmingRoute, setConfirmingRoute] = useState(false);
+  const [loadingOpenRoutes, setLoadingOpenRoutes] = useState(false);
+  const [confirmStep, setConfirmStep] = useState(false);
   const PER_PAGE = 20;
 
   useEffect(() => {
@@ -230,9 +286,10 @@ export function Orders() {
 
   const fetchAuxiliaryData = async () => {
     try {
-      const [entRes, areaRes] = await Promise.all([
+      const [entRes, areaRes, deliveryRes] = await Promise.all([
         api.get('/entregadores'),
-        api.get('/areas_entrega')
+        api.get('/areas_entrega'),
+        api.get('/entregas')
       ]);
       const eData = entRes.data.data;
       const allCouriers = Array.isArray(eData) ? eData : eData?.data || [];
@@ -240,6 +297,8 @@ export function Orders() {
       
       const aData = areaRes.data.data;
       setAreas(Array.isArray(aData) ? aData : aData?.data || []);
+
+      setDeliveryRecords(getApiList(deliveryRes.data));
     } catch (error) {
       console.error('Error fetching auxiliary data:', error);
     }
@@ -308,8 +367,7 @@ export function Orders() {
   const fetchOrderDelivery = async (orderId: string) => {
     try {
       const response = await api.get('/entregas', { params: { pedido_id: orderId } });
-      const rawData = response.data.data;
-      const data = Array.isArray(rawData) ? rawData : rawData?.data || [];
+      const data = getApiList(response.data);
       // Se houver entrega, pega a primeira (geralmente só tem uma)
       setCurrentDelivery(data.length > 0 ? data[0] : null);
     } catch (error) {
@@ -318,10 +376,17 @@ export function Orders() {
     }
   };
 
+  const getDeliveryForOrder = async (orderId: string) => {
+    const response = await api.get('/entregas', { params: { pedido_id: orderId } });
+    const data = getApiList(response.data);
+    return data.length > 0 ? data[0] : null;
+  };
+
   const handleSelectOrder = (order: any) => {
     setSelected(order);
     setSelectedItems([]);
     setCurrentDelivery(null);
+    setEditingCourier(false);
     fetchOrderItems(order.id);
     if ((order.tipo_pedido || order.type || '').toLowerCase() === 'entrega') {
       fetchOrderDelivery(order.id);
@@ -333,12 +398,29 @@ export function Orders() {
     
     try {
       setAssigningCourier(true);
-      if (currentDelivery) {
+      const latestDelivery = currentDelivery?.id
+        ? await getDeliveryForOrder(selected.id)
+        : currentDelivery;
+
+      if (latestDelivery) {
+        if (latestDelivery.entregador_id === entregadorId) {
+          setCurrentDelivery(latestDelivery);
+          setEditingCourier(false);
+          return;
+        }
+
+        if (!canChangeDeliveryCourier(latestDelivery)) {
+          setCurrentDelivery(latestDelivery);
+          alert('Não é possível alterar o entregador depois que a entrega saiu para rota.');
+          return;
+        }
+
         // Já existe uma entrega, vamos atribuir/mudar o entregador
-        const response = await api.patch(`/entregas/${currentDelivery.id}/atribuir-entregador`, {
+        const response = await api.patch(`/entregas/${latestDelivery.id}/atribuir-entregador`, {
           entregador_id: entregadorId
         });
         setCurrentDelivery(response.data.data || response.data);
+        setEditingCourier(false);
       } else {
         // Não existe entrega, vamos criar uma
         // Precisamos de uma área de entrega. Vamos tentar encontrar uma pelo bairro ou usar a primeira disponível.
@@ -361,38 +443,58 @@ export function Orders() {
           status: 'atribuida'
         });
         setCurrentDelivery(response.data.data || response.data);
+        setEditingCourier(false);
       }
     } catch (error) {
       console.error('Error assigning courier:', error);
-      alert('Erro ao atribuir entregador. Verifique se o entregador pertence à mesma loja.');
+      alert(getApiErrorMessage(
+        error,
+        'Erro ao atribuir entregador. Verifique os dados e tente novamente.'
+      ));
     } finally {
       setAssigningCourier(false);
     }
   };
 
   const advanceStatus = async (id: string, currentStatus: string) => {
-    const rawStatus = currentStatus.toLowerCase().replace(' ', '_').replace('ç', 'c').replace('ã', 'a');
-    
     // Map current status to next status in backend format
     const backendStatusFlow = ['pendente', 'confirmado', 'em_separacao', 'pronto', 'saiu_para_entrega', 'entregue'];
+    const rawStatus = getBackendStatus(currentStatus);
     let idx = backendStatusFlow.indexOf(rawStatus);
-    
-    // If not found in exact format, try to match by label
-    if (idx === -1) {
-       const mapped = Object.entries(statusLabels).find(([k, v]) => v === currentStatus);
-       if (mapped) idx = backendStatusFlow.indexOf(mapped[0]);
-    }
-    
+
     if (idx >= 0 && idx < backendStatusFlow.length - 1) {
       const nextStatus = backendStatusFlow[idx + 1];
       try {
-        // Se for um pedido de entrega e já tiver vínculo, e o próximo status for relacionado a entrega,
-        // usamos o endpoint de entrega para manter sincronizado.
-        if (currentDelivery && (nextStatus === 'saiu_para_entrega' || nextStatus === 'entregue')) {
-          const endpoint = nextStatus === 'saiu_para_entrega' ? 'sair-para-entrega' : 'entregar';
-          await api.patch(`/entregas/${currentDelivery.id}/${endpoint}`);
-          // Recarregar entrega para garantir sincronia
-          fetchOrderDelivery(id);
+        const order = selected?.id === id ? selected : orders.find(o => o.id === id);
+        const isDeliveryOrder = (order?.tipo_pedido || order?.type || '').toLowerCase() === 'entrega';
+        const nextIsDeliveryStatus = nextStatus === 'saiu_para_entrega' || nextStatus === 'entregue';
+
+        if (isDeliveryOrder && nextIsDeliveryStatus) {
+          let delivery = await getDeliveryForOrder(id);
+
+          if (!delivery?.entregador_id) {
+            setCurrentDelivery(delivery);
+            alert('Atribua um entregador antes de enviar este pedido para entrega.');
+            return;
+          }
+
+          if (delivery.status === 'aguardando') {
+            const response = await api.patch(`/entregas/${delivery.id}/atribuir-entregador`, {
+              entregador_id: delivery.entregador_id,
+            });
+            delivery = response.data.data || response.data;
+          }
+
+          if (nextStatus === 'saiu_para_entrega' && !['saiu_para_entrega', 'entregue'].includes(delivery.status)) {
+            await api.patch(`/entregas/${delivery.id}/sair-para-entrega`);
+          }
+
+          if (nextStatus === 'entregue' && delivery.status !== 'entregue') {
+            await api.patch(`/entregas/${delivery.id}/entregar`);
+          }
+
+          const updatedDelivery = await getDeliveryForOrder(id);
+          setCurrentDelivery(updatedDelivery);
         } else {
           await api.patch(`/pedidos/${id}/status`, { status: nextStatus });
         }
@@ -404,7 +506,10 @@ export function Orders() {
         }
       } catch (error) {
         console.error('Error updating status', error);
-        alert('Erro ao atualizar status. Verifique se as condições para este status foram atendidas (ex: entregador atribuído).');
+        alert(getApiErrorMessage(
+          error,
+          'Erro ao atualizar status. Verifique se as condições para este status foram atendidas (ex: entregador atribuído).'
+        ));
       }
     }
   };
@@ -430,12 +535,14 @@ export function Orders() {
     return matchSearch;
   });
 
-  const deliveryOrders = filtered.filter(o => (o.tipo_pedido || o.type || '').toLowerCase() === 'entrega');
+  const assignedOrderIds = new Set(deliveryRecords.map((delivery) => delivery.pedido_id));
+  const allDeliveryOrders = filtered.filter(isDeliveryOrder);
+  const deliveryOrders = allDeliveryOrders.filter((order) => !assignedOrderIds.has(order.id));
   const bairroGroups: Record<string, { orders: any[]; total: number; colorIdx: number }> = {};
   const bairroColorMap: Record<string, number> = {};
   
   deliveryOrders.forEach(o => {
-    const bairro = o.endereco_cliente?.bairro || extractBairro(o.address || '');
+    const bairro = getOrderNeighborhood(o);
     if (!bairroGroups[bairro]) {
       bairroColorMap[bairro] = Object.keys(bairroColorMap).length % bairroColors.length;
       bairroGroups[bairro] = { orders: [], total: 0, colorIdx: bairroColorMap[bairro] };
@@ -450,36 +557,99 @@ export function Orders() {
     setExpandedBairros(p => ({ ...p, [bairro]: !p[bairro] }));
   };
 
-  const openRouteModal = (bairro: string) => {
-    setRouteModalBairro(bairro);
-    setRouteDriverId(couriers[0]?.id || '');
-    setRouteSuccess(null);
+  const toggleOrderSelection = (orderId: string) => {
+    setSelectedOrderIds((current) => (
+      current.includes(orderId)
+        ? current.filter((id) => id !== orderId)
+        : [...current, orderId]
+    ));
   };
 
-  const handleCreateRoute = async () => {
-    if (!routeModalBairro || !routeDriverId) return;
-    const group = bairroGroups[routeModalBairro];
-    if (!group) return;
-    const activeOrders = group.orders.filter(
-      o => !['entregue', 'cancelado', 'Entregue', 'Cancelado'].includes(o.status)
+  const resetDeliveryModal = () => {
+    setDeliveryModalOrders(null);
+    setRouteDriverId('');
+    setOpenRoutes([]);
+    setSelectedRouteId('');
+    setConfirmStep(false);
+  };
+
+  const openDeliveryModal = (ordersToAssign: any[]) => {
+    const activeOrders = ordersToAssign.filter(
+      order => !assignedOrderIds.has(order.id) && !['entregue', 'cancelado', 'Entregue', 'Cancelado'].includes(order.status)
     );
     if (activeOrders.length === 0) {
-      alert('Nenhum pedido ativo neste bairro para criar rota.');
+      alert('Nenhum pedido não atribuído disponível para adicionar.');
       return;
     }
+
+    const firstCourier = couriers[0]?.id || '';
+    setDeliveryModalOrders(activeOrders);
+    setRouteDriverId(firstCourier);
+    setSelectedRouteId('__new__');
+    setConfirmStep(false);
+    if (firstCourier) fetchOpenRoutes(firstCourier);
+  };
+
+  const openSelectedOrdersModal = () => {
+    const selectedOrders = deliveryOrders.filter(order => selectedOrderIds.includes(order.id));
+    openDeliveryModal(selectedOrders);
+  };
+
+  const fetchOpenRoutes = async (driverId: string) => {
+    if (!driverId) {
+      setOpenRoutes([]);
+      return;
+    }
+
     try {
-      setCreatingRoute(true);
-      const user = (() => { try { const u = localStorage.getItem('user'); return u ? JSON.parse(u) : null; } catch { return null; } })();
-      await api.post('/delivery-routes', {
-        driverId: routeDriverId,
-        orderIds: activeOrders.map((o: any) => o.id),
-        routeName: `Rota ${routeModalBairro}`,
-      });
-      setRouteSuccess(`Rota criada com sucesso para ${routeModalBairro}!`);
-    } catch (err: any) {
-      alert(`Erro ao criar rota: ${err?.response?.data?.error || err.message}`);
+      setLoadingOpenRoutes(true);
+      const response = await api.get('/delivery-routes/open', { params: { driverId } });
+      const routes = getApiList(response.data);
+      setOpenRoutes(routes);
+      setSelectedRouteId(routes[0]?.id || '__new__');
+    } catch (error) {
+      console.error('Erro ao carregar entregas abertas:', error);
+      setOpenRoutes([]);
+      setSelectedRouteId('__new__');
     } finally {
-      setCreatingRoute(false);
+      setLoadingOpenRoutes(false);
+    }
+  };
+
+  const handleDriverChange = (driverId: string) => {
+    setRouteDriverId(driverId);
+    setConfirmStep(false);
+    fetchOpenRoutes(driverId);
+  };
+
+  const handleConfirmDeliveryAssignment = async () => {
+    if (!deliveryModalOrders || !routeDriverId || !selectedRouteId) return;
+
+    try {
+      setConfirmingRoute(true);
+      const orderIds = deliveryModalOrders.map(order => order.id);
+      if (selectedRouteId === '__new__') {
+        const bairros = Array.from(new Set(deliveryModalOrders.map(getOrderNeighborhood))).join(', ');
+        await api.post('/delivery-routes/draft', {
+          driverId: routeDriverId,
+          orderIds,
+          routeName: `Entrega - ${bairros}`,
+        });
+      } else {
+        await api.patch('/delivery-routes/assign-orders', {
+          routeId: selectedRouteId,
+          driverId: routeDriverId,
+          orderIds,
+        });
+      }
+
+      setSelectedOrderIds((current) => current.filter(id => !orderIds.includes(id)));
+      await fetchAuxiliaryData();
+      resetDeliveryModal();
+    } catch (err: any) {
+      alert(getApiErrorMessage(err, 'Erro ao atualizar a entrega. Verifique os dados e tente novamente.'));
+    } finally {
+      setConfirmingRoute(false);
     }
   };
 
@@ -571,9 +741,33 @@ export function Orders() {
         {/* Count bar */}
         <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
           {viewMode === 'lista' ? (
-            <span className="text-xs text-gray-500">{filtered.length} pedido{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}</span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-500">{filtered.length} pedido{filtered.length !== 1 ? 's' : ''} encontrado{filtered.length !== 1 ? 's' : ''}</span>
+              {selectedOrderIds.length > 0 && (
+                <button
+                  onClick={openSelectedOrdersModal}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+                  style={{ backgroundColor: PRIMARY }}
+                >
+                  Adicionar {selectedOrderIds.length} à entrega
+                </button>
+              )}
+            </div>
           ) : (
-            <span className="text-xs text-gray-500">{sortedBairros.length} bairro{sortedBairros.length !== 1 ? 's' : ''} · {deliveryOrders.length} pedido{deliveryOrders.length !== 1 ? 's' : ''} de entrega</span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-500">
+                Pedidos não atribuídos: {deliveryOrders.length} · Já atribuídos: {allDeliveryOrders.length - deliveryOrders.length}
+              </span>
+              {selectedOrderIds.length > 0 && (
+                <button
+                  onClick={openSelectedOrdersModal}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+                  style={{ backgroundColor: PRIMARY }}
+                >
+                  Adicionar {selectedOrderIds.length} à entrega
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -584,7 +778,8 @@ export function Orders() {
               const statusDisplay = getStatusLabel(order.status);
               const sc = statusColor[order.status] || statusColor['Recebido'] || { bg: '#fffbeb', text: '#d97706' };
               const isSelected = selected?.id === order.id;
-              const isEntrega = (order.tipo_pedido || order.type || '').toLowerCase() === 'entrega';
+              const isEntrega = isDeliveryOrder(order);
+              const canSelectForDelivery = isEntrega && !assignedOrderIds.has(order.id) && !['entregue', 'cancelado'].includes(order.status);
               
               return (
                 <div
@@ -594,13 +789,26 @@ export function Orders() {
                   style={isSelected ? { borderLeftColor: PRIMARY } : {}}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      {canSelectForDelivery && (
+                        <input
+                          type="checkbox"
+                          checked={selectedOrderIds.includes(order.id)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => toggleOrderSelection(order.id)}
+                          className="mt-1 rounded border-gray-300"
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-gray-800">{order.numero_pedido || order.id}</span>
                         <span className="px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ backgroundColor: sc.bg, color: sc.text }}>
                           {statusDisplay}
                         </span>
                         <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{isEntrega ? 'Entrega' : 'Retirada'}</span>
+                        {isEntrega && assignedOrderIds.has(order.id) && (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">Atribuído</span>
+                        )}
                       </div>
                       <div className="text-sm text-gray-600 mt-0.5">{order.cliente?.nome || order.customer || 'Desconhecido'}</div>
                       <div className="flex items-center gap-3 mt-1">
@@ -609,6 +817,7 @@ export function Orders() {
                         {isEntrega && (
                           <span className="text-xs text-gray-400 flex items-center gap-1"><MapPin className="w-3 h-3" />{order.endereco_cliente?.bairro || extractBairro(order.address || '')}</span>
                         )}
+                      </div>
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
@@ -709,13 +918,13 @@ export function Orders() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={e => { e.stopPropagation(); openRouteModal(bairro); }}
+                        onClick={e => { e.stopPropagation(); openDeliveryModal(activeOrders); }}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors hover:opacity-80"
                         style={{ borderColor: col.border, backgroundColor: PRIMARY, color: 'white' }}
-                        title="Criar rota para este bairro"
+                        title="Adicionar pedidos deste bairro a uma entrega"
                       >
                         <Navigation className="w-3 h-3" />
-                        <span className="hidden sm:inline">Criar Rota</span>
+                        <span className="hidden sm:inline">Adicionar</span>
                       </button>
                       <button
                         onClick={e => { e.stopPropagation(); printBairroRoute(bairro, group.orders); }}
@@ -739,12 +948,22 @@ export function Orders() {
                       {group.orders.map((order, oIdx) => {
                         const statusDisplay = getStatusLabel(order.status);
                         const sc = statusColor[order.status] || statusColor['Recebido'] || { bg: '#eee', text: '#666' };
+                        const canSelectForDelivery = !assignedOrderIds.has(order.id) && !['entregue', 'cancelado'].includes(order.status);
                         return (
                           <div
                             key={order.id}
                             className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
                             onClick={() => handleSelectOrder(order)}
                           >
+                            {canSelectForDelivery && (
+                              <input
+                                type="checkbox"
+                                checked={selectedOrderIds.includes(order.id)}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={() => toggleOrderSelection(order.id)}
+                                className="rounded border-gray-300"
+                              />
+                            )}
                             <div
                               className="w-5 h-5 rounded-full flex items-center justify-center text-white flex-shrink-0"
                               style={{ backgroundColor: col.dot, fontSize: '10px', fontWeight: 700 }}
@@ -799,45 +1018,36 @@ export function Orders() {
         )}
       </div>
 
-      {/* ── ROUTE CREATION MODAL ───────────────────────── */}
-      {routeModalBairro && (
+      {/* ── DELIVERY ASSIGNMENT MODAL ──────────────────── */}
+      {deliveryModalOrders && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-            {/* Modal header */}
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
-                <h3 className="font-bold text-gray-800">Criar Rota de Entrega</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Bairro: <strong>{routeModalBairro}</strong></p>
+                <h3 className="font-bold text-gray-800">{confirmStep ? 'Confirmar atualização da entrega' : 'Adicionar pedidos à entrega'}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {deliveryModalOrders.length} pedido{deliveryModalOrders.length !== 1 ? 's' : ''} não atribuído{deliveryModalOrders.length !== 1 ? 's' : ''}
+                </p>
               </div>
-              <button onClick={() => setRouteModalBairro(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={resetDeliveryModal} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal body */}
             <div className="px-5 py-4 space-y-4">
-              {routeSuccess ? (
-                <div className="flex flex-col items-center gap-3 py-4 text-center">
-                  <CheckCircle2 className="w-10 h-10 text-green-500" />
-                  <p className="text-sm font-semibold text-gray-800">{routeSuccess}</p>
-                  <button
-                    onClick={() => setRouteModalBairro(null)}
-                    className="mt-2 px-5 py-2 rounded-lg text-sm font-bold text-white"
-                    style={{ backgroundColor: PRIMARY }}
-                  >
-                    Fechar
-                  </button>
-                </div>
-              ) : (
+              {!confirmStep ? (
                 <>
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Pedidos ativos no bairro</p>
-                    <p className="text-2xl font-black" style={{ color: PRIMARY }}>
-                      {(bairroGroups[routeModalBairro]?.orders ?? []).filter(
-                        o => !['entregue', 'cancelado', 'Entregue', 'Cancelado'].includes(o.status)
-                      ).length}
-                      <span className="text-sm font-medium text-gray-400 ml-1">pedidos</span>
-                    </p>
+                  <div className="rounded-xl border border-gray-200 p-3 bg-gray-50">
+                    <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Novos pedidos</p>
+                    <div className="grid sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
+                      {deliveryModalOrders.map(order => (
+                        <div key={order.id} className="bg-white border border-gray-100 rounded-lg px-3 py-2">
+                          <div className="text-sm font-semibold text-gray-800">{order.numero_pedido || order.id}</div>
+                          <div className="text-xs text-gray-500 truncate">{order.cliente?.nome || order.customer || 'Cliente'}</div>
+                          <div className="text-[11px] text-gray-400 truncate">{getOrderNeighborhood(order)}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div>
@@ -849,7 +1059,7 @@ export function Orders() {
                     ) : (
                       <select
                         value={routeDriverId}
-                        onChange={e => setRouteDriverId(e.target.value)}
+                        onChange={e => handleDriverChange(e.target.value)}
                         className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2"
                         style={{ '--tw-ring-color': PRIMARY } as any}
                       >
@@ -862,24 +1072,134 @@ export function Orders() {
                     )}
                   </div>
 
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">
+                      Entregas abertas deste entregador
+                    </label>
+                    {loadingOpenRoutes ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Carregando entregas...
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        {openRoutes.map((route) => (
+                          <button
+                            key={route.id}
+                            onClick={() => setSelectedRouteId(route.id)}
+                            className={`w-full text-left rounded-xl border p-3 transition-colors ${selectedRouteId === route.id ? 'border-blue-300 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="font-semibold text-sm text-gray-800">{route.routeName || `Entrega ${route.id.slice(0, 8)}`}</div>
+                                <div className="text-xs text-gray-500">{getDeliveryLabel(route)} · {(route.neighborhoods || []).join(', ') || 'Sem bairro'}</div>
+                              </div>
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-600">
+                                {route.totalStops || 0} pedidos
+                              </span>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-gray-500">
+                              <span>{route.pendingCount || 0} pendentes</span>
+                              <span>{route.deliveredCount || 0} concluídos</span>
+                              {route.totalDistanceKm && <span>{route.totalDistanceKm} km</span>}
+                              {route.totalDurationText && <span>{route.totalDurationText}</span>}
+                            </div>
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setSelectedRouteId('__new__')}
+                          className={`w-full text-left rounded-xl border p-3 transition-colors ${selectedRouteId === '__new__' ? 'border-blue-300 bg-blue-50' : 'border-dashed border-gray-300 hover:bg-gray-50'}`}
+                        >
+                          <div className="font-semibold text-sm text-gray-800">Criar nova entrega</div>
+                          <div className="text-xs text-gray-500">Ação explícita do balcão. A rota ainda não será otimizada.</div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex gap-2 pt-1">
                     <button
-                      onClick={() => setRouteModalBairro(null)}
+                      onClick={resetDeliveryModal}
                       className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                       Cancelar
                     </button>
                     <button
-                      onClick={handleCreateRoute}
-                      disabled={creatingRoute || !routeDriverId}
+                      onClick={() => setConfirmStep(true)}
+                      disabled={!routeDriverId || !selectedRouteId}
                       className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-60"
                       style={{ backgroundColor: PRIMARY }}
                     >
-                      {creatingRoute ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Criando...</>
+                      Continuar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-gray-200 p-3">
+                      <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Entrega destino</p>
+                      {selectedRouteId === '__new__' ? (
+                        <div>
+                          <div className="font-semibold text-gray-800">Nova entrega</div>
+                          <div className="text-xs text-gray-500">Será criada sem rota otimizada.</div>
+                        </div>
                       ) : (
-                        <><Navigation className="w-4 h-4" /> Criar Rota</>
+                        (() => {
+                          const route = openRoutes.find(r => r.id === selectedRouteId);
+                          return (
+                            <div>
+                              <div className="font-semibold text-gray-800">{route?.routeName || 'Entrega selecionada'}</div>
+                              <div className="text-xs text-gray-500">{route?.totalStops || 0} pedidos atuais · {route?.pendingCount || 0} pendentes</div>
+                              <div className="text-xs text-gray-500">{(route?.neighborhoods || []).join(', ') || 'Sem bairro'}</div>
+                            </div>
+                          );
+                        })()
                       )}
+                    </div>
+                    <div className="rounded-xl border border-gray-200 p-3">
+                      <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Após confirmação</p>
+                      <div className="text-sm text-gray-700">
+                        Total de pedidos: <strong>{(openRoutes.find(r => r.id === selectedRouteId)?.totalStops || 0) + deliveryModalOrders.length}</strong>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Bairros: {Array.from(new Set([
+                          ...(openRoutes.find(r => r.id === selectedRouteId)?.neighborhoods || []),
+                          ...deliveryModalOrders.map(getOrderNeighborhood),
+                        ])).join(', ')}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 p-3 bg-gray-50">
+                    <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Pedidos adicionados</p>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {deliveryModalOrders.map(order => (
+                        <div key={order.id} className="flex items-start justify-between gap-3 rounded-lg bg-white border border-gray-100 px-3 py-2">
+                          <div>
+                            <div className="text-sm font-semibold text-gray-800">{order.numero_pedido || order.id}</div>
+                            <div className="text-xs text-gray-500">{order.cliente?.nome || order.customer || 'Cliente'}</div>
+                            <div className="text-[11px] text-gray-400">{getOrderAddress(order)} · {getOrderNeighborhood(order)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => setConfirmStep(false)}
+                      className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      onClick={handleConfirmDeliveryAssignment}
+                      disabled={confirmingRoute}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-60"
+                      style={{ backgroundColor: PRIMARY }}
+                    >
+                      {confirmingRoute ? <><Loader2 className="w-4 h-4 animate-spin" /> Salvando...</> : <><CheckCircle2 className="w-4 h-4" /> Confirmar</>}
                     </button>
                   </div>
                 </>
@@ -1042,7 +1362,7 @@ export function Orders() {
                   <TruckIcon className="w-4 h-4" style={{ color: PRIMARY }} /> Entregador
                 </h4>
                 
-                {currentDelivery?.entregador_id ? (
+                {currentDelivery?.entregador_id && !editingCourier ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1058,17 +1378,33 @@ export function Orders() {
                           </div>
                         </div>
                       </div>
-                      <button 
-                        onClick={() => setCurrentDelivery({ ...currentDelivery, entregador_id: null })}
-                        className="text-xs text-blue-600 hover:underline"
-                      >
-                        Alterar
-                      </button>
+                      {canChangeDeliveryCourier(currentDelivery) ? (
+                        <button
+                          onClick={() => setEditingCourier(true)}
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          Alterar
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-gray-400 text-right max-w-[110px]">
+                          Em rota
+                        </span>
+                      )}
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-xs text-gray-500 mb-2">Selecione um entregador para este pedido:</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-gray-500 mb-2">Selecione um entregador para este pedido:</p>
+                      {editingCourier && (
+                        <button
+                          onClick={() => setEditingCourier(false)}
+                          className="text-xs text-gray-500 hover:underline"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
                     <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto pr-1">
                       {couriers.length > 0 ? (
                         couriers.map(courier => (

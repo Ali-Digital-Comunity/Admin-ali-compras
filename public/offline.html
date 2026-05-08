@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>Admin Sao Jorge - Offline</title>
+    <style>
+      :root {
+        color: #0f172a;
+        background: #f8fafc;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      body {
+        align-items: center;
+        display: flex;
+        min-height: 100vh;
+        margin: 0;
+        padding: 24px;
+      }
+
+      main {
+        max-width: 420px;
+      }
+
+      h1 {
+        font-size: 1.75rem;
+        line-height: 1.2;
+        margin: 0 0 12px;
+      }
+
+      p {
+        color: #475569;
+        font-size: 1rem;
+        line-height: 1.5;
+        margin: 0 0 20px;
+      }
+
+      button {
+        appearance: none;
+        background: #0f172a;
+        border: 0;
+        border-radius: 8px;
+        color: white;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 600;
+        padding: 12px 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sem conexao no momento</h1>
+      <p>
+        O painel precisa de internet para buscar dados atualizados. Verifique a
+        conexao e tente novamente.
+      </p>
+      <button type="button" onclick="window.location.reload()">Tentar novamente</button>
+    </main>
+  </body>
+</html>
