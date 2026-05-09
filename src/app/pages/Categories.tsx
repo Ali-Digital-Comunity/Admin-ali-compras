@@ -132,7 +132,7 @@ export function Categories() {
 
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-gray-900 font-semibold">Categorias Globais</h2>
+          <h2 className="text-gray-900 font-semibold">Categorias</h2>
           <p className="text-gray-500 text-sm mt-0.5">{categories.length} categorias disponíveis</p>
         </div>
       </div>
@@ -168,9 +168,6 @@ export function Categories() {
                   </span>
                 </div>
                 <div className="text-xs text-gray-400 mt-0.5">Visível para clientes</div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <div className="text-[10px] text-gray-300 uppercase font-bold px-2">Global</div>
               </div>
             </div>
           ))}

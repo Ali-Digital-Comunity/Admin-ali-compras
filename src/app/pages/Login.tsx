@@ -4,6 +4,12 @@ import { Store, Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
 import api from '../services/api';
 
 const PRIMARY = '#122a4c';
+const PLATFORM_BRANDING = {
+  nome: 'Painel Administrativo',
+  slogan: 'Gestão completa da operação da sua loja',
+  cor_primaria: PRIMARY,
+  cor_secundaria: '#16a34a'
+};
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -12,6 +18,9 @@ export function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  const primaryColor = PLATFORM_BRANDING.cor_primaria;
+  const secondaryColor = PLATFORM_BRANDING.cor_secundaria;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,39 +63,25 @@ export function Login() {
     <div className="min-h-screen flex" style={{ backgroundColor: '#f0f4f8' }}>
       {/* Left panel */}
       <div
-        className="hidden lg:flex flex-col justify-between w-1/2 p-12 text-white"
-        style={{ backgroundColor: PRIMARY }}
+        className="hidden lg:flex flex-col justify-center w-1/2 p-12 text-white"
+        style={{ backgroundColor: primaryColor }}
       >
-        <div>
-          <div className="flex items-center gap-3 mb-12">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-              <Store className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <div className="font-semibold text-lg leading-tight">São Jorge Super</div>
-              <div className="text-white/60 text-sm">Plataforma Administrativa</div>
+        <div className="max-w-lg">
+          <div className="mb-10">
+            <div className="h-24 w-24 rounded-2xl bg-white/15 flex items-center justify-center border border-white/15">
+              <Store className="w-12 h-12 text-white" />
             </div>
           </div>
-          <h2 className="text-3xl font-semibold leading-snug mb-4">
-            Gestão completa da sua operação de delivery
-          </h2>
-          <p className="text-white/65 text-base leading-relaxed">
-            Controle pedidos, produtos, entregas, promoções e muito mais em um único painel robusto e intuitivo.
+          <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-white/80 border border-white/15 bg-white/10 mb-5">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: secondaryColor }} />
+            Plataforma Administrativa
+          </div>
+          <h1 className="text-5xl font-semibold leading-tight mb-5">
+            {PLATFORM_BRANDING.nome}
+          </h1>
+          <p className="text-white/75 text-xl leading-relaxed max-w-md">
+            {PLATFORM_BRANDING.slogan}
           </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { label: 'Pedidos Hoje', value: '96' },
-            { label: 'Faturamento do Dia', value: 'R$ 14.782' },
-            { label: 'Clientes Ativos', value: '1.248' },
-            { label: 'Produtos Cadastrados', value: '1.041' },
-          ].map(stat => (
-            <div key={stat.label} className="p-4 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.10)' }}>
-              <div className="text-white/60 text-xs mb-1">{stat.label}</div>
-              <div className="text-white font-semibold text-xl">{stat.value}</div>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -95,12 +90,12 @@ export function Login() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: PRIMARY }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
               <Store className="w-5 h-5 text-white" />
             </div>
             <div>
-              <div className="font-semibold text-gray-900">São Jorge Super</div>
-              <div className="text-gray-500 text-sm">Plataforma Administrativa</div>
+              <div className="font-semibold text-gray-900">{PLATFORM_BRANDING.nome}</div>
+              <div className="text-gray-500 text-sm line-clamp-1">{PLATFORM_BRANDING.slogan}</div>
             </div>
           </div>
 
@@ -124,9 +119,9 @@ export function Login() {
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    placeholder="admin@saojorgesuper.com.br"
+                    placeholder="usuario@empresa.com.br"
                     className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 text-gray-800 bg-white"
-                    style={{ '--tw-ring-color': PRIMARY } as React.CSSProperties}
+                    style={{ '--tw-ring-color': primaryColor } as React.CSSProperties}
                   />
                 </div>
               </div>
@@ -157,7 +152,7 @@ export function Login() {
                   <input type="checkbox" className="rounded" />
                   <span className="text-sm text-gray-600">Lembrar acesso</span>
                 </label>
-                <button type="button" className="text-sm hover:underline" style={{ color: PRIMARY }}>
+                <button type="button" className="text-sm hover:underline" style={{ color: primaryColor }}>
                   Esqueci a senha
                 </button>
               </div>
@@ -166,7 +161,7 @@ export function Login() {
                 type="submit"
                 disabled={loading}
                 className="w-full py-2.5 rounded-lg text-white text-sm font-semibold transition-opacity disabled:opacity-70 flex items-center justify-center gap-2"
-                style={{ backgroundColor: PRIMARY }}
+                style={{ backgroundColor: primaryColor }}
               >
                 {loading ? (
                   <>
@@ -180,7 +175,7 @@ export function Login() {
               <button 
                 onClick={() => navigate('/driver')}
                 className="text-sm font-bold hover:underline flex items-center justify-center gap-1.5 w-full transition-all"
-                style={{ color: PRIMARY }}
+                style={{ color: primaryColor }}
               >
                 Acessar Minhas Entregas
                 <span className="text-lg">→</span>
@@ -189,7 +184,7 @@ export function Login() {
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">
-            © 2026 São Jorge Super · Todos os direitos reservados
+            © 2026 Plataforma Administrativa · Todos os direitos reservados
           </p>
         </div>
       </div>

@@ -1,23 +1,70 @@
 import { useState, useEffect } from 'react';
-import { Search, Eye, X, Phone, Mail, MapPin, ShoppingBag, ArrowLeft, MessageCircle, Gift } from 'lucide-react';
+import { Search, Eye, X, Phone, Mail, MapPin, ShoppingBag, ArrowLeft, MessageCircle } from 'lucide-react';
 import api from '../services/api';
 
 const PRIMARY = '#122a4c';
 
+const toNumber = (value: any) => {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+
+  const normalized = String(value)
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatCurrency = (value: any) => (
+  `R$ ${toNumber(value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+);
+
+const getCustomerTotal = (customer: any) => (
+  toNumber(
+    customer.total_gasto ??
+    customer.totalGasto ??
+    customer.valor_total ??
+    customer.total_compras ??
+    customer.total
+  )
+);
+
+const getCustomerOrdersCount = (customer: any) => (
+  Number(customer.total_pedidos ?? customer.orders ?? customer.pedidos ?? 0) || 0
+);
+
+const getWhatsappPhone = (phone: any) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  return digits.startsWith('55') ? digits : `55${digits}`;
+};
+
 function CustomerDetail({ customer, onClose }: { customer: any; onClose: () => void }) {
   const [custOrders, setCustOrders] = useState<any[]>([]);
+  const [orderStats, setOrderStats] = useState({ count: 0, total: 0 });
   
   useEffect(() => {
     // Optionally fetch recent orders for this customer
     api.get(`/pedidos?cliente_id=${customer.id}`).then(res => {
        const data = res.data.data;
        const orders = Array.isArray(data) ? data : data?.data || [];
+       setOrderStats({
+         count: orders.length,
+         total: orders.reduce((sum: number, order: any) => sum + toNumber(order.valor_total ?? order.total), 0),
+       });
        setCustOrders(orders.slice(0, 4));
     }).catch(console.error);
   }, [customer.id]);
 
-  const ordersCount = customer.orders || 0;
-  const totalSpent = customer.total || 0;
+  const customerOrdersCount = getCustomerOrdersCount(customer);
+  const customerTotal = getCustomerTotal(customer);
+  const ordersCount = customerOrdersCount || orderStats.count;
+  const totalSpent = customerTotal || orderStats.total;
+  const whatsappPhone = getWhatsappPhone(customer.telefone);
+  const whatsappUrl = whatsappPhone
+    ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Olá, ${customer.nome || ''}!`)}`
+    : null;
 
   return (
     <div className="flex-1 lg:border-l border-gray-200 overflow-y-auto bg-white">
@@ -41,7 +88,7 @@ function CustomerDetail({ customer, onClose }: { customer: any; onClose: () => v
         <div className="grid grid-cols-3 gap-3">
           {[
             { label: 'Pedidos', value: ordersCount, color: PRIMARY },
-            { label: 'Total Gasto', value: `R$ ${totalSpent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, color: '#16a34a' },
+            { label: 'Total Gasto', value: formatCurrency(totalSpent), color: '#16a34a' },
             { label: 'Ticket Médio', value: `R$ ${(ordersCount > 0 ? (totalSpent / ordersCount) : 0).toFixed(2).replace('.', ',')}`, color: '#7c3aed' },
           ].map(stat => (
             <div key={stat.label} className="bg-gray-50 rounded-xl p-3 text-center">
@@ -81,7 +128,7 @@ function CustomerDetail({ customer, onClose }: { customer: any; onClose: () => v
                     <div className="text-xs text-gray-400">{new Date(order.criado_em).toLocaleDateString('pt-BR')} · {order.tipo_pedido}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-semibold text-gray-700">R$ {parseFloat(order.valor_total).toFixed(2).replace('.', ',')}</div>
+                    <div className="text-sm font-semibold text-gray-700">{formatCurrency(order.valor_total ?? order.total)}</div>
                     <span className="text-[11px]" style={{ color: order.status === 'entregue' ? '#16a34a' : order.status === 'cancelado' ? '#dc2626' : '#d97706' }}>
                       {order.status.replace(/_/g, ' ').toUpperCase()}
                     </span>
@@ -92,25 +139,27 @@ function CustomerDetail({ customer, onClose }: { customer: any; onClose: () => v
           </div>
         </div>
 
-        {/* Internal notes */}
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <h4 className="font-semibold text-gray-700 text-sm mb-2">Observações Internas</h4>
-          <textarea
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 bg-gray-50 focus:outline-none resize-none"
-            rows={3}
-            placeholder="Adicione uma nota sobre este cliente..."
-          />
-          <button className="mt-2 text-xs px-3 py-1.5 rounded-lg font-medium text-white" style={{ backgroundColor: PRIMARY }}>Salvar nota</button>
-        </div>
-
         {/* Actions */}
         <div className="space-y-2">
-          <button className="w-full py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
-            <MessageCircle className="w-4 h-4" /> Entrar em Contato
-          </button>
-          <button className="w-full py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
-            <Gift className="w-4 h-4" /> Aplicar Cupom ou Benefício
-          </button>
+          {whatsappUrl ? (
+            <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <MessageCircle className="w-4 h-4" /> Entrar em Contato
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="w-full py-2.5 rounded-lg border border-gray-200 text-sm text-gray-400 bg-gray-50 cursor-not-allowed flex items-center justify-center gap-2"
+              title="Cliente sem WhatsApp cadastrado"
+            >
+              <MessageCircle className="w-4 h-4" /> WhatsApp não cadastrado
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -141,7 +190,7 @@ export function Customers() {
     
     // Como a API atual não retorna contagem de pedidos, 
     // os filtros de 'Recorrentes' e 'Novos' funcionarão apenas com base na lógica disponível
-    const ordersCount = c.orders || 0; 
+    const ordersCount = getCustomerOrdersCount(c);
     
     if (filter === 'Recorrentes') return matchSearch && ordersCount > 10;
     if (filter === 'Novos') return matchSearch && ordersCount <= 3;
@@ -201,8 +250,8 @@ export function Customers() {
               <tbody className="bg-white divide-y divide-gray-100">
                 {filtered.map(customer => {
                   const isActive = customer.status === 'ativo';
-                  const ordersCount = customer.orders || 0;
-                  const totalSpent = customer.total || 0;
+                  const ordersCount = getCustomerOrdersCount(customer);
+                  const totalSpent = getCustomerTotal(customer);
 
                   return (
                     <tr
@@ -228,7 +277,7 @@ export function Customers() {
                         <span className="font-medium text-gray-700">{ordersCount}</span>
                       </td>
                       <td className="px-4 py-3 text-right hidden sm:table-cell">
-                        <span className="font-medium text-gray-700">R$ {totalSpent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        <span className="font-medium text-gray-700">{formatCurrency(totalSpent)}</span>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span

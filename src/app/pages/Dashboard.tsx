@@ -22,9 +22,98 @@ const statusColor: Record<string, string> = {
   'Cancelado': '#dc2626',
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const parseLocalDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatChartLabel = (date: Date, endDate?: Date) => {
+  const sameMonth = endDate && date.getMonth() === endDate.getMonth() && date.getFullYear() === endDate.getFullYear();
+  return date.toLocaleDateString('pt-BR', sameMonth ? { day: '2-digit' } : { day: '2-digit', month: '2-digit' });
+};
+
+const getSalesPointDate = (point: any) => {
+  const value = point?.date || point?.data || point?.dia || point?.created_at || point?.periodo;
+  if (!value || typeof value !== 'string') return null;
+
+  const date = value.includes('T') ? new Date(value) : parseLocalDate(value.slice(0, 10));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getSalesPointValue = (point: any) => {
+  const value = point?.vendas ?? point?.valor ?? point?.total ?? point?.revenue ?? 0;
+  const number = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+  return Number.isFinite(number) ? number : 0;
+};
+
+const buildSalesChartData = (rawData: any[], startDate: string, endDate: string) => {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  const safeEnd = end >= start ? end : start;
+  const totalDays = Math.max(1, Math.floor((safeEnd.getTime() - start.getTime()) / DAY_MS) + 1);
+  const bucketSize = totalDays <= 14 ? 1 : Math.ceil(totalDays / 12);
+  const bucketCount = Math.ceil(totalDays / bucketSize);
+
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const bucketStart = addDays(start, index * bucketSize);
+    const bucketEnd = addDays(bucketStart, Math.min(bucketSize, totalDays - index * bucketSize) - 1);
+    const label = bucketSize === 1
+      ? formatChartLabel(bucketStart, safeEnd)
+      : `${formatChartLabel(bucketStart, safeEnd)}-${formatChartLabel(bucketEnd, safeEnd)}`;
+
+    return {
+      day: label,
+      vendas: 0,
+      start: formatDateInput(bucketStart),
+      end: formatDateInput(bucketEnd)
+    };
+  });
+
+  const dataWithDates = rawData.filter(point => getSalesPointDate(point));
+
+  if (dataWithDates.length > 0) {
+    dataWithDates.forEach((point) => {
+      const pointDate = getSalesPointDate(point);
+      if (!pointDate || pointDate < start || pointDate > safeEnd) return;
+      const bucketIndex = Math.min(
+        bucketCount - 1,
+        Math.floor((pointDate.getTime() - start.getTime()) / DAY_MS / bucketSize)
+      );
+      buckets[bucketIndex].vendas += getSalesPointValue(point);
+    });
+    return buckets;
+  }
+
+  if (rawData.length === bucketCount) {
+    return buckets.map((bucket, index) => ({ ...bucket, vendas: getSalesPointValue(rawData[index]) }));
+  }
+
+  if (rawData.length === 1 && bucketCount === 1) {
+    return [{ ...buckets[0], vendas: getSalesPointValue(rawData[0]) }];
+  }
+
+  return buckets;
+};
+
 export function Dashboard() {
   const navigate = useNavigate();
   const [metrics, setMetrics] = useState<any>(null);
+  const [storeConfig, setStoreConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Filtro de data, padrão: hoje
@@ -32,12 +121,33 @@ export function Dashboard() {
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
 
+  const user = (() => {
+    try {
+      const userJson = localStorage.getItem('user');
+      return userJson ? JSON.parse(userJson) : null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
   useEffect(() => {
-    const fetchMetrics = async () => {
+    const fetchDashboardData = async () => {
       setLoading(true);
       try {
-        const response = await api.get(`/metricas?dataInicio=${startDate}&dataFim=${endDate}`);
-        setMetrics(response.data.data);
+        const [metricsRes, configRes] = await Promise.allSettled([
+          api.get(`/metricas?dataInicio=${startDate}&dataFim=${endDate}`),
+          user?.loja_id ? api.get(`/lojas/${user.loja_id}/configuracoes`) : Promise.resolve(null)
+        ]);
+
+        if (metricsRes.status === 'fulfilled') {
+          setMetrics(metricsRes.value.data.data);
+        } else {
+          throw metricsRes.reason;
+        }
+
+        if (configRes.status === 'fulfilled' && configRes.value) {
+          setStoreConfig(configRes.value.data?.data || configRes.value.data || null);
+        }
       } catch (error) {
         console.error('Error fetching metrics', error);
         // Navigate to login if unauthorized
@@ -49,8 +159,8 @@ export function Dashboard() {
       }
     };
 
-    fetchMetrics();
-  }, [navigate, startDate, endDate]);
+    fetchDashboardData();
+  }, [navigate, startDate, endDate, user?.loja_id]);
 
   if (loading && !metrics) {
     return (
@@ -72,20 +182,13 @@ export function Dashboard() {
     { label: 'Em Rota', value: metrics?.pedidosEmRota || '0', sub: 'Atuais', icon: Truck, color: '#ea580c', bg: '#fff7ed' },
   ];
 
-  const salesData = metrics?.vendasSemana || [];
+  const rawSalesData = Array.isArray(metrics?.vendasSemana) ? metrics.vendasSemana : [];
+  const salesData = buildSalesChartData(rawSalesData, startDate, endDate);
+  const salesIntervalLabel = startDate === endDate ? 'Hoje' : `${startDate.split('-').reverse().join('/')} a ${endDate.split('-').reverse().join('/')}`;
   const statusData = metrics?.statusData || [];
   const orders = metrics?.pedidosRecentes || [];
   const topProducts = metrics?.topProdutos || [];
   const alerts = metrics?.alertas || [];
-
-  const user = (() => {
-    try {
-      const userJson = localStorage.getItem('user');
-      return userJson ? JSON.parse(userJson) : null;
-    } catch (e) {
-      return null;
-    }
-  })();
 
   const greeting = (() => {
     const hour = new Date().getHours();
@@ -94,12 +197,16 @@ export function Dashboard() {
     return 'Boa noite';
   })();
 
+  const primaryColor = storeConfig?.cor_primaria || PRIMARY;
+  const secondaryColor = storeConfig?.cor_secundaria || '#16a34a';
+  const slogan = storeConfig?.slogan;
+
   return (
     <div className="p-5 max-w-screen-xl mx-auto overflow-y-auto flex-1 h-full m-[0px]">
       {/* Welcome bar */}
       <div
         className="rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between text-white gap-4"
-        style={{ backgroundColor: PRIMARY }}
+        style={{ backgroundColor: primaryColor }}
       >
         <div>
           <div className="text-white/70 text-xs mb-0.5">
@@ -108,6 +215,12 @@ export function Dashboard() {
           <h2 className="text-white font-semibold">
             {greeting}, {user?.nome?.split(' ')[0] || 'Administrador'}. Boas vindas!
           </h2>
+          {slogan && (
+            <div className="text-white/80 text-sm mt-1 flex items-center gap-2">
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: secondaryColor }} />
+              {slogan}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-white/10 rounded-lg p-1 text-sm">
@@ -151,16 +264,15 @@ export function Dashboard() {
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-gray-800 font-semibold">Vendas da Semana</h3>
-              <p className="text-gray-400 text-xs mt-0.5">Faturamento diário em R$</p>
+              <h3 className="text-gray-800 font-semibold">Vendas no Período</h3>
+              <p className="text-gray-400 text-xs mt-0.5">Faturamento por intervalo em R$</p>
             </div>
-            <select className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white">
-              <option>Esta semana</option>
-              <option>Semana anterior</option>
-            </select>
+            <div className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white">
+              {salesIntervalLabel}
+            </div>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={salesData.length ? salesData : [{ day: 'Seg', vendas: 0 }]} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+            <AreaChart data={salesData.length ? salesData : [{ day: 'Hoje', vendas: 0 }]} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={PRIMARY} stopOpacity={0.15} />

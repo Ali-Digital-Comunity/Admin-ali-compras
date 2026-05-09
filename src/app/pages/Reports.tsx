@@ -9,6 +9,93 @@ import { useNavigate } from 'react-router';
 
 const PRIMARY = '#122a4c';
 const COLORS = [PRIMARY, '#2563eb', '#7c3aed', '#16a34a', '#d97706', '#ea580c'];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const parseLocalDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatChartLabel = (date: Date, endDate?: Date) => {
+  const sameMonth = endDate && date.getMonth() === endDate.getMonth() && date.getFullYear() === endDate.getFullYear();
+  return date.toLocaleDateString('pt-BR', sameMonth ? { day: '2-digit' } : { day: '2-digit', month: '2-digit' });
+};
+
+const getSalesPointDate = (point: any) => {
+  const value = point?.date || point?.data || point?.dia || point?.created_at || point?.periodo;
+  if (!value || typeof value !== 'string') return null;
+
+  const date = value.includes('T') ? new Date(value) : parseLocalDate(value.slice(0, 10));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getSalesPointValue = (point: any) => {
+  const value = point?.vendas ?? point?.valor ?? point?.total ?? point?.revenue ?? 0;
+  const number = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+  return Number.isFinite(number) ? number : 0;
+};
+
+const buildSalesChartData = (rawData: any[], startDate: string, endDate: string) => {
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
+  const safeEnd = end >= start ? end : start;
+  const totalDays = Math.max(1, Math.floor((safeEnd.getTime() - start.getTime()) / DAY_MS) + 1);
+  const bucketSize = totalDays <= 14 ? 1 : Math.ceil(totalDays / 12);
+  const bucketCount = Math.ceil(totalDays / bucketSize);
+
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const bucketStart = addDays(start, index * bucketSize);
+    const bucketEnd = addDays(bucketStart, Math.min(bucketSize, totalDays - index * bucketSize) - 1);
+    const label = bucketSize === 1
+      ? formatChartLabel(bucketStart, safeEnd)
+      : `${formatChartLabel(bucketStart, safeEnd)}-${formatChartLabel(bucketEnd, safeEnd)}`;
+
+    return {
+      day: label,
+      vendas: 0,
+      start: formatDateInput(bucketStart),
+      end: formatDateInput(bucketEnd)
+    };
+  });
+
+  const dataWithDates = rawData.filter(point => getSalesPointDate(point));
+
+  if (dataWithDates.length > 0) {
+    dataWithDates.forEach((point) => {
+      const pointDate = getSalesPointDate(point);
+      if (!pointDate || pointDate < start || pointDate > safeEnd) return;
+      const bucketIndex = Math.min(
+        bucketCount - 1,
+        Math.floor((pointDate.getTime() - start.getTime()) / DAY_MS / bucketSize)
+      );
+      buckets[bucketIndex].vendas += getSalesPointValue(point);
+    });
+    return buckets;
+  }
+
+  if (rawData.length === bucketCount) {
+    return buckets.map((bucket, index) => ({ ...bucket, vendas: getSalesPointValue(rawData[index]) }));
+  }
+
+  if (rawData.length === 1 && bucketCount === 1) {
+    return [{ ...buckets[0], vendas: getSalesPointValue(rawData[0]) }];
+  }
+
+  return buckets;
+};
 
 export function Reports() {
   const navigate = useNavigate();
@@ -53,7 +140,9 @@ export function Reports() {
   const cancelados = metrics?.pedidosCancelados || 0;
   const taxaCancelamento = pedidosTotal ? ((cancelados / pedidosTotal) * 100).toFixed(1) : '0.0';
 
-  const salesData = metrics?.vendasSemana || [];
+  const rawSalesData = Array.isArray(metrics?.vendasSemana) ? metrics.vendasSemana : [];
+  const salesData = buildSalesChartData(rawSalesData, startDate, endDate);
+  const salesIntervalLabel = startDate === endDate ? 'Hoje' : `${startDate.split('-').reverse().join('/')} a ${endDate.split('-').reverse().join('/')}`;
   const categoryRevenueData = metrics?.categoryRevenueData || [];
   const topProducts = metrics?.topProdutos || [];
   const hourlyData = metrics?.hourlyData || [];
@@ -111,6 +200,9 @@ export function Reports() {
             <div>
               <h3 className="font-semibold text-gray-800">Faturamento por Dia</h3>
               <p className="text-xs text-gray-400 mt-0.5">Evolução no período selecionado</p>
+            </div>
+            <div className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white">
+              {salesIntervalLabel}
             </div>
           </div>
           <ResponsiveContainer width="100%" height={240}>
