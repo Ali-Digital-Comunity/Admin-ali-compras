@@ -1,12 +1,11 @@
 import { RouterProvider } from 'react-router';
-import { router } from './routes';
-import { SystemNoticeHost } from './components/SystemNoticeModal';
+import { AppProviders } from './providers/AppProviders';
+import { router } from './router/router';
 
 export default function App() {
   return (
-    <>
+    <AppProviders>
       <RouterProvider router={router} />
-      <SystemNoticeHost />
-    </>
+    </AppProviders>
   );
 }

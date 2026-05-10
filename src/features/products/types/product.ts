@@ -1,0 +1,18 @@
+export type Product = Record<string, any>;
+
+export type ProductFilters = {
+  search: string;
+  category: string;
+  status: string;
+};
+
+export type ProductStorePayload = {
+  preco: number | null;
+  preco_promocional: number | null;
+  estoque: number;
+  produto_id: string;
+  categoria_id: string | null;
+  ativo_na_loja: boolean;
+  destaque: boolean;
+  codigo_interno: string;
+};
