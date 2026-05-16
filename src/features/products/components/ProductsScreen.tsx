@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Plus, Search, Filter, Edit2, Power, Eye, X, Package, 
-  ChevronDown, Grid2X2, List, Trash2, CheckCircle2, AlertCircle, Tag, Star  
+  ChevronDown, Grid2X2, List, Trash2, CheckCircle2, AlertCircle, Tag, Star, Zap
 } from 'lucide-react';
 import { showSystemNotice } from '@/shared/components/SystemNoticeModal';
 import { useProducts } from '../hooks/useProducts';
@@ -230,6 +230,7 @@ function ProductForm({ product, isNew, categories, onClose, onSuccess }: { produ
     estoque: product?.estoque?.toString() ?? '',
     ativo: isNew ? true : (product?.ativo_na_loja ?? true),
     destaque: product?.destaque ?? false,
+    consumo_imediato: product?.consumo_imediato ?? false,
     codigo_interno: product?.codigo_interno ?? '',
     categoria_id: product?.categoria_id ?? product?.produto_categoria_id ?? '',
   });
@@ -248,6 +249,12 @@ function ProductForm({ product, isNew, categories, onClose, onSuccess }: { produ
   const subcategories = sortCategories(categories.filter((cat: any) => cat.categoria_pai_id === categoryId));
   const selectedCategoryId = subcategoryId || categoryId || departmentId || '';
   const selectedCategoryPath = getCategoryPath(categories, selectedCategoryId).map((cat: any) => cat.nome).join(' > ');
+  const regularPrice = parseMoney(form.preco);
+  const promotionalPrice = parseMoney(form.preco_promocional);
+  const hasPromotionalPrice = regularPrice !== null &&
+    promotionalPrice !== null &&
+    promotionalPrice > 0 &&
+    promotionalPrice < regularPrice;
 
   useEffect(() => {
     const fetchVariations = async () => {
@@ -300,16 +307,29 @@ function ProductForm({ product, isNew, categories, onClose, onSuccess }: { produ
   };
 
   const handleSubmit = async () => {
+    const preco = parseMoney(form.preco);
+    const precoPromocional = parseMoney(form.preco_promocional);
+    const canUseImmediateConsumption = preco !== null &&
+      precoPromocional !== null &&
+      precoPromocional > 0 &&
+      precoPromocional < preco;
+
+    if (form.consumo_imediato && !canUseImmediateConsumption) {
+      showSystemNotice('Produtos para consumo imediato precisam de preço promocional menor que o preço normal.');
+      return;
+    }
+
     try {
       setLoading(true);
       const payload = {
-        preco: parseMoney(form.preco),
-        preco_promocional: parseMoney(form.preco_promocional),
+        preco,
+        preco_promocional: precoPromocional,
         estoque: parseStock(form.estoque),
         produto_id: isNew ? product.id : product.produto_id,
         categoria_id: selectedCategoryId || null,
         ativo_na_loja: form.ativo,
         destaque: form.destaque,
+        consumo_imediato: form.consumo_imediato,
         codigo_interno: form.codigo_interno
       };
 
@@ -571,6 +591,13 @@ function ProductForm({ product, isNew, categories, onClose, onSuccess }: { produ
               {[
                 { key: 'ativo', label: 'Produto ativo na loja', desc: 'Visível no app dos clientes' },
                 { key: 'destaque', label: 'Produto em destaque', desc: 'Aparece em seção especial na loja' },
+                {
+                  key: 'consumo_imediato',
+                  label: 'Consumo imediato',
+                  desc: hasPromotionalPrice
+                    ? 'Aparece na seção de consumo imediato'
+                    : 'Exige preço promocional menor que o preço normal',
+                },
               ].map(opt => (
                 <div key={opt.key} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                   <div>
@@ -578,8 +605,15 @@ function ProductForm({ product, isNew, categories, onClose, onSuccess }: { produ
                     <div className="text-xs text-gray-400">{opt.desc}</div>
                   </div>
                   <button
-                    onClick={() => setForm(p => ({ ...p, [opt.key]: !p[opt.key as keyof typeof form] }))}
-                    className="relative inline-flex h-5 w-9 rounded-full transition-colors"
+                    onClick={() => {
+                      if (opt.key === 'consumo_imediato' && !form.consumo_imediato && !hasPromotionalPrice) {
+                        showSystemNotice('Informe um preço promocional menor que o preço normal antes de marcar consumo imediato.');
+                        return;
+                      }
+
+                      setForm(p => ({ ...p, [opt.key]: !p[opt.key as keyof typeof form] }));
+                    }}
+                    className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${opt.key === 'consumo_imediato' && !hasPromotionalPrice && !form.consumo_imediato ? 'opacity-60' : ''}`}
                     style={{ backgroundColor: form[opt.key as keyof typeof form] ? PRIMARY : '#d1d5db' }}
                   >
                     <span
@@ -748,7 +782,15 @@ export function ProductsScreen() {
                         </div>
                         <div>
                           <div className="font-medium text-gray-800 text-sm">{product.nome}</div>
-                          <div className="text-xs text-gray-400">{product.marca || 'Sem marca'}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-400">
+                            <span>{product.marca || 'Sem marca'}</span>
+                            {product.consumo_imediato && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">
+                                <Zap className="w-3 h-3" />
+                                Consumo imediato
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>

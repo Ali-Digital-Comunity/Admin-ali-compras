@@ -14,5 +14,6 @@ export type ProductStorePayload = {
   categoria_id: string | null;
   ativo_na_loja: boolean;
   destaque: boolean;
+  consumo_imediato: boolean;
   codigo_interno: string;
 };
