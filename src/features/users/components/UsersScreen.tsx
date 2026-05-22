@@ -242,17 +242,21 @@ export function UsersScreen() {
           'financeiro': 'Financeiro'
         };
 
+        if (!perfis[u.perfil]) {
+          return null;
+        }
+
         return {
           id: u.id,
           name: u.nome,
           email: u.email,
-          role: perfis[u.perfil] || 'Operador',
+          role: perfis[u.perfil],
           raw_perfil: u.perfil,
           status: u.status === 'ativo' ? 'Ativo' : 'Inativo',
           raw_status: u.status,
           lastLogin: u.ultimo_login_em ? new Date(u.ultimo_login_em).toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Nunca'
         };
-      });
+      }).filter(Boolean);
 
       setUsers(mapped);
     } catch (err) {

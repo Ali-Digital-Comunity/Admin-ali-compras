@@ -53,6 +53,12 @@ export function AdminLayout() {
   if (user?.perfil === 'entregador') {
     return <Navigate to="/driver" replace />;
   }
+
+  if (user?.perfil === 'cliente') {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    return <Navigate to="/login" replace />;
+  }
   
   const unreadCount = notifications.filter(n => !n.read).length;
 
