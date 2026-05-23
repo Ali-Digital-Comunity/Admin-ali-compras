@@ -3,7 +3,7 @@ import { Outlet, useNavigate, useLocation, Navigate } from 'react-router';
 import {
   LayoutDashboard, ShoppingCart, Package,  Grid3X3, Tag, Image, Users, Truck, User,
   Ticket, CreditCard, BarChart3, UserCog, Settings, Bell, Menu, X, LogOut,
-  ChevronRight, Store, Key, ClipboardList, Bike
+  ChevronRight, Store, Key, Bike, FileUp
 } from 'lucide-react';
 import { notifications } from '@/shared/constants/mockData';
 import api from '@/shared/lib/api';
@@ -17,6 +17,7 @@ const navItems = [
   { label: 'Minhas Entregas', icon: Bike, path: '/driver', slug: 'entregadores' },
   { label: 'Pedidos', icon: ShoppingCart, path: '/orders', slug: 'pedidos' },
   { label: 'Produtos', icon: Package, path: '/products', slug: 'produtos' },
+  { label: 'Importar CSV', icon: FileUp, path: '/products-import', slug: 'produtos' },
   { label: 'Categorias', icon: Grid3X3, path: '/categories', slug: 'categorias' },
   { label: 'Promoções', icon: Tag, path: '/promotions', slug: 'produtos' }, // Using 'produtos' perm for promotions too or we can add 'promocoes'
   { label: 'Banners', icon: Image, path: '/banners', slug: 'banners' },

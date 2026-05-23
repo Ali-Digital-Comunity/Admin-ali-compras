@@ -7,6 +7,7 @@ import { LoginPage } from "@/pages/Login/LoginPage";
 import { DashboardPage } from "@/pages/Dashboard/DashboardPage";
 import { OrdersPage } from "@/pages/Orders/OrdersPage";
 import { ProductsPage } from "@/pages/Products/ProductsPage";
+import { ProductCsvImportPage } from "@/pages/Products/ProductCsvImportPage";
 import { CategoriesPage } from "@/pages/Categories/CategoriesPage";
 import { PromotionsPage } from "@/pages/Promotions/PromotionsPage";
 import { BannersPage } from "@/pages/Banners/BannersPage";
@@ -52,6 +53,8 @@ export const router = createBrowserRouter([
           { path: "pedidos", Component: OrdersPage },
           { path: "products", Component: ProductsPage },
           { path: "produtos", Component: ProductsPage },
+          { path: "products-import", Component: ProductCsvImportPage },
+          { path: "importar-produtos", Component: ProductCsvImportPage },
           { path: "categories", Component: CategoriesPage },
           { path: "categorias", Component: CategoriesPage },
           { path: "promotions", Component: PromotionsPage },

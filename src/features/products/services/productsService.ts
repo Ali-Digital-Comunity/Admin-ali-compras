@@ -74,6 +74,18 @@ export const productsService = {
     return response.data.data;
   },
 
+  async importStoreProductsCSV(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await api.post("/produtos_loja/importar-csv", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 60000,
+    });
+
+    return response.data.data;
+  },
+
   async updateStoreProduct(productStoreId: string, payload: ProductStorePayload) {
     await api.patch(`/produtos_loja/${productStoreId}`, payload);
   },
