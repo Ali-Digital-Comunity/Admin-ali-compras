@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Edit2, Trash2, GripVertical, X, Image, Calendar, Power, Loader2, UploadCloud, ArrowUp, ArrowDown, Search, PackageCheck } from 'lucide-react';
 import { bannersService } from '../services/bannersService';
 import type { Banner, BannerDisplayType, BannerPageKey, BannerPayload, BannerPlacementKey, BannerSegmentRules } from '../types/banner';
@@ -103,86 +103,125 @@ function bannerToPayload(banner?: Banner | null): BannerPayload {
   };
 }
 
-function getProductCategoryId(product: any) {
-  return product.categoria_final_id || product.categoria_id || product.produto_categoria_id || '';
-}
-
 function getProductCategoryLabel(product: any) {
   return product.categoria_caminho || product.categoria_nome || 'Sem categoria';
 }
 
-function hasActivePromotion(product: any) {
-  const price = Number(product.preco);
-  const promoPrice = Number(product.preco_promocional);
-  const promotionDate = product.promocao_ate ? new Date(product.promocao_ate).getTime() : null;
-  const dateIsValid = !promotionDate || promotionDate >= Date.now();
-
-  return Number.isFinite(price) && Number.isFinite(promoPrice) && promoPrice > 0 && promoPrice < price && dateIsValid;
-}
-
-function getDescendantCategoryIds(categories: any[], categoryId: string) {
-  const ids = new Set<string>([categoryId]);
-  let changed = true;
-
-  while (changed) {
-    changed = false;
-    categories.forEach((category) => {
-      if (category.categoria_pai_id && ids.has(category.categoria_pai_id) && !ids.has(category.id)) {
-        ids.add(category.id);
-        changed = true;
-      }
-    });
-  }
-
-  return ids;
-}
-
 function ProductPickerModal({
-  products,
+  title = 'Selecionar produtos do banner',
   categories,
   selectedIds,
   onChange,
+  onProductsSeen,
   onClose,
 }: {
-  products: any[];
+  title?: string;
   categories: any[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  onProductsSeen: (products: any[]) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [promoOnly, setPromoOnly] = useState(false);
   const [page, setPage] = useState(1);
+  const [products, setProducts] = useState<any[]>([]);
+  const [productById, setProductById] = useState<Record<string, any>>({});
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [productError, setProductError] = useState<string | null>(null);
   const perPage = 30;
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const selectedProducts = useMemo(
-    () => selectedIds.map((id) => products.find((product) => product.id === id)).filter(Boolean),
-    [products, selectedIds],
-  );
+  const selectedProducts = useMemo(() => (
+    selectedIds.map((id) => productById[id] || { id, nome: id })
+  ), [productById, selectedIds]);
 
-  const filteredProducts = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const selectedCategoryIds = categoryId ? getDescendantCategoryIds(categories, categoryId) : null;
-
-    return products.filter((product) => {
-      const productCategoryId = getProductCategoryId(product);
-      const categoryMatches = !selectedCategoryIds || selectedCategoryIds.has(productCategoryId);
-      const promotionMatches = !promoOnly || hasActivePromotion(product);
-      const text = `${product.nome || ''} ${product.marca || ''} ${product.codigo_interno || ''} ${getProductCategoryLabel(product)}`.toLowerCase();
-      const searchMatches = !normalizedQuery || text.includes(normalizedQuery);
-      return categoryMatches && promotionMatches && searchMatches;
-    });
-  }, [categories, categoryId, products, promoOnly, query]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / perPage));
   const currentPage = Math.min(page, totalPages);
-  const visibleProducts = filteredProducts.slice((currentPage - 1) * perPage, currentPage * perPage);
+  const visibleProducts = products;
+
+  const rememberProducts = useCallback((items: any[]) => {
+    if (items.length === 0) return;
+    setProductById((current) => {
+      const next = { ...current };
+      items.forEach((product) => {
+        next[product.id] = product;
+      });
+      return next;
+    });
+    onProductsSeen(items);
+  }, [onProductsSeen]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    const fetchProducts = async () => {
+      try {
+        setLoadingProducts(true);
+        setProductError(null);
+        const result = await productsService.getStoreProductsPage({
+          search: debouncedQuery,
+          categoryId,
+          promoOnly,
+          page,
+          perPage,
+          activeOnly: true,
+        });
+
+        if (ignore) return;
+        setProducts(result.products);
+        setTotalProducts(result.total);
+        setTotalPages(Math.max(1, result.totalPages));
+        rememberProducts(result.products);
+      } catch (error: any) {
+        if (!ignore) {
+          setProductError(error?.response?.data?.message || error?.message || 'Erro ao buscar produtos.');
+        }
+      } finally {
+        if (!ignore) setLoadingProducts(false);
+      }
+    };
+
+    fetchProducts();
+
+    return () => {
+      ignore = true;
+    };
+  }, [categoryId, debouncedQuery, page, perPage, promoOnly, rememberProducts]);
+
+  useEffect(() => {
+    const missingIds = selectedIds.filter((id) => !productById[id]);
+    if (missingIds.length === 0) return;
+
+    let ignore = false;
+
+    const fetchSelectedProducts = async () => {
+      try {
+        const selectedProductsData = await productsService.getStoreProductsByIds(missingIds);
+        if (!ignore) rememberProducts(selectedProductsData);
+      } catch (error) {
+        console.error('Erro ao buscar produtos selecionados do banner:', error);
+      }
+    };
+
+    fetchSelectedProducts();
+
+    return () => {
+      ignore = true;
+    };
+  }, [productById, rememberProducts, selectedIds]);
 
   useEffect(() => {
     setPage(1);
-  }, [categoryId, promoOnly, query]);
+  }, [categoryId, debouncedQuery, promoOnly]);
 
   const toggle = (productId: string) => {
     onChange(selectedSet.has(productId)
@@ -203,8 +242,8 @@ function ProductPickerModal({
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <div>
-            <h3 className="font-semibold text-gray-900">Selecionar produtos do banner</h3>
-            <p className="text-sm text-gray-500">{selectedIds.length} selecionado{selectedIds.length === 1 ? '' : 's'} · {filteredProducts.length} encontrado{filteredProducts.length === 1 ? '' : 's'}</p>
+            <h3 className="font-semibold text-gray-900">{title}</h3>
+            <p className="text-sm text-gray-500">{selectedIds.length} selecionado{selectedIds.length === 1 ? '' : 's'} · {totalProducts} encontrado{totalProducts === 1 ? '' : 's'}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
             <X className="h-5 w-5" />
@@ -261,7 +300,16 @@ function ProductPickerModal({
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {visibleProducts.length === 0 ? (
+              {loadingProducts ? (
+                <div className="flex items-center justify-center rounded-xl border border-dashed border-gray-200 py-14 text-center text-sm text-gray-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Carregando produtos...
+                </div>
+              ) : productError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {productError}
+                </div>
+              ) : visibleProducts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 py-14 text-center text-sm text-gray-500">
                   <PackageCheck className="mb-2 h-8 w-8 text-gray-300" />
                   Nenhum produto encontrado.
@@ -345,28 +393,46 @@ function ProductPickerModal({
 
 function BannerForm({
   banner,
-  products,
   categories,
+  categoriesLoading,
+  onLoadCategories,
   onClose,
   onSaved,
 }: {
   banner?: Banner | null;
-  products: any[];
   categories: any[];
+  categoriesLoading: boolean;
+  onLoadCategories: () => Promise<void>;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState<BannerPayload>(() => bannerToPayload(banner));
+  const [productById, setProductById] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [productPickerTarget, setProductPickerTarget] = useState<'banner' | 'purchased' | null>(null);
 
   const allowedPlacements = useMemo(
     () => placementOptions.filter((option) => option.pages.includes(form.page_key)),
     [form.page_key],
   );
+
+  const rememberProducts = useCallback((items: any[]) => {
+    if (items.length === 0) return;
+    setProductById((current) => {
+      const next = { ...current };
+      items.forEach((product) => {
+        next[product.id] = product;
+      });
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    onLoadCategories();
+  }, [onLoadCategories]);
 
   useEffect(() => {
     if (!allowedPlacements.some((option) => option.value === form.placement_key)) {
@@ -404,6 +470,18 @@ function BannerForm({
         ? currentIds.filter((id) => id !== categoryId)
         : [...currentIds, categoryId],
     });
+  };
+
+  const selectedPickerIds = productPickerTarget === 'purchased'
+    ? form.segment_rules.purchased_product_ids || []
+    : form.produto_loja_ids;
+
+  const updatePickerSelection = (ids: string[]) => {
+    if (productPickerTarget === 'purchased') {
+      updateRules({ purchased_product_ids: ids });
+    } else {
+      update('produto_loja_ids', ids);
+    }
   };
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -459,13 +537,14 @@ function BannerForm({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      {showProductPicker && (
+      {productPickerTarget && (
         <ProductPickerModal
-          products={products}
+          title={productPickerTarget === 'purchased' ? 'Selecionar produtos já comprados' : 'Selecionar produtos do banner'}
           categories={categories}
-          selectedIds={form.produto_loja_ids}
-          onChange={(ids) => update('produto_loja_ids', ids)}
-          onClose={() => setShowProductPicker(false)}
+          selectedIds={selectedPickerIds}
+          onChange={updatePickerSelection}
+          onProductsSeen={rememberProducts}
+          onClose={() => setProductPickerTarget(null)}
         />
       )}
       <form onSubmit={submit} className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto p-6">
@@ -575,7 +654,7 @@ function BannerForm({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowProductPicker(true)}
+                    onClick={() => setProductPickerTarget('banner')}
                     className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-white"
                     style={{ backgroundColor: PRIMARY }}
                   >
@@ -584,14 +663,11 @@ function BannerForm({
                 </div>
                 {form.produto_loja_ids.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    {form.produto_loja_ids.slice(0, 6).map((id) => {
-                      const product = products.find((item) => item.id === id);
-                      return (
-                        <span key={id} className="max-w-[180px] truncate rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-700 shadow-sm">
-                          {product?.nome || id}
-                        </span>
-                      );
-                    })}
+                    {form.produto_loja_ids.slice(0, 6).map((id) => (
+                      <span key={id} className="max-w-[180px] truncate rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-700 shadow-sm">
+                        {productById[id]?.nome || id}
+                      </span>
+                    ))}
                     {form.produto_loja_ids.length > 6 && (
                       <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-500 shadow-sm">
                         +{form.produto_loja_ids.length - 6}
@@ -633,19 +709,45 @@ function BannerForm({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Já comprou produtos</label>
-                  <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 p-2">
-                    {products.slice(0, 80).map((product) => (
-                      <label key={product.id} className="flex items-center gap-2 px-2 py-1.5 text-xs text-gray-700">
-                        <input type="checkbox" checked={(form.segment_rules.purchased_product_ids || []).includes(product.id)} onChange={() => togglePurchasedProduct(product.id)} />
-                        <span className="truncate">{product.nome}</span>
-                      </label>
-                    ))}
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-500">
+                        {(form.segment_rules.purchased_product_ids || []).length} selecionado{(form.segment_rules.purchased_product_ids || []).length === 1 ? '' : 's'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setProductPickerTarget('purchased')}
+                        className="rounded-md px-2 py-1 text-xs font-semibold text-white"
+                        style={{ backgroundColor: PRIMARY }}
+                      >
+                        Selecionar
+                      </button>
+                    </div>
+                    {(form.segment_rules.purchased_product_ids || []).length > 0 && (
+                      <div className="flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">
+                        {(form.segment_rules.purchased_product_ids || []).slice(0, 12).map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => togglePurchasedProduct(id)}
+                            className="max-w-[140px] truncate rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-gray-600 shadow-sm hover:text-red-600"
+                          >
+                            {productById[id]?.nome || id}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Já comprou categorias</label>
                   <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-200 p-2">
-                    {categories.map((category) => (
+                    {categoriesLoading ? (
+                      <div className="flex items-center gap-2 px-2 py-2 text-xs text-gray-500">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Carregando categorias...
+                      </div>
+                    ) : categories.map((category) => (
                       <label key={category.id} className="flex items-center gap-2 px-2 py-1.5 text-xs text-gray-700">
                         <input type="checkbox" checked={(form.segment_rules.purchased_category_ids || []).includes(category.id)} onChange={() => togglePurchasedCategory(category.id)} />
                         <span className="truncate">{category.nome}</span>
@@ -672,34 +774,42 @@ function BannerForm({
 
 export function BannersScreen() {
   const [banners, setBanners] = useState<Banner[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [editing, setEditing] = useState<Banner | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [bannerList, productList, categoryList] = await Promise.all([
-        bannersService.getBanners(),
-        productsService.getAllStoreProducts(),
-        productsService.getActiveCategories(),
-      ]);
+      const bannerList = await bannersService.getBanners();
       setBanners(bannerList);
-      setProducts(productList);
-      setCategories(categoryList);
     } catch (error: any) {
       setError(error?.response?.data?.message || error?.message || 'Erro ao carregar banners.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const loadCategories = useCallback(async () => {
+    if (categories.length > 0 || categoriesLoading) return;
+
+    try {
+      setCategoriesLoading(true);
+      const categoryList = await productsService.getActiveCategories();
+      setCategories(categoryList);
+    } catch (error: any) {
+      setError(error?.response?.data?.message || error?.message || 'Erro ao carregar categorias.');
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, [categories.length, categoriesLoading]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const remove = async (id: string) => {
     if (!window.confirm('Excluir este banner?')) return;
@@ -727,8 +837,9 @@ export function BannersScreen() {
       {editing !== undefined && (
         <BannerForm
           banner={editing}
-          products={products}
           categories={categories}
+          categoriesLoading={categoriesLoading}
+          onLoadCategories={loadCategories}
           onClose={() => setEditing(undefined)}
           onSaved={fetchData}
         />

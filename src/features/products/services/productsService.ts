@@ -6,10 +6,60 @@ const toList = (payload: any) => {
   return Array.isArray(data) ? data : data?.data || [];
 };
 
+const toPaginatedProducts = (payload: any) => {
+  const data = payload?.data;
+  const products = Array.isArray(data) ? data : data?.data || [];
+
+  return {
+    products,
+    total: data?.total ?? products.length,
+    page: data?.page ?? 1,
+    perPage: data?.per_page ?? products.length,
+    totalPages: data?.total_pages ?? 1,
+  };
+};
+
 export const productsService = {
   async getStoreProducts() {
     const response = await api.get("/produtos_loja");
     return toList(response.data);
+  },
+
+  async getStoreProductsPage(params: {
+    search?: string;
+    categoryId?: string;
+    page: number;
+    perPage: number;
+    activeOnly?: boolean;
+    promoOnly?: boolean;
+  }) {
+    const response = await api.get("/produtos_loja", {
+      params: {
+        busca: params.search || undefined,
+        categoria_id: params.categoryId || undefined,
+        ativo: params.activeOnly === false ? undefined : true,
+        promocao_ativa: params.promoOnly || undefined,
+        page: params.page,
+        per_page: params.perPage,
+      },
+    });
+
+    return toPaginatedProducts(response.data);
+  },
+
+  async getStoreProductsByIds(ids: string[]) {
+    const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+    if (uniqueIds.length === 0) return [];
+
+    const responses = await Promise.allSettled(
+      uniqueIds.map((id) => api.get(`/produtos_loja/${id}`)),
+    );
+
+    return responses.flatMap((response) => (
+      response.status === "fulfilled" && response.value.data.data
+        ? [response.value.data.data]
+        : []
+    ));
   },
 
   async getAllStoreProducts() {
