@@ -44,9 +44,13 @@ export async function enableAdminPush() {
     throw new Error('Este navegador não suporta notificações push.');
   }
 
+  if (!firebaseVapidKey) {
+    throw new Error('A chave VITE_FIREBASE_VAPID_KEY não foi incluída no build do painel admin.');
+  }
+
   const messaging = await getWebMessaging();
-  if (!messaging || !firebaseVapidKey) {
-    throw new Error('Firebase Web Push não está configurado neste ambiente.');
+  if (!messaging) {
+    throw new Error('FCM Web Push requer um navegador compatível e execução em HTTPS ou localhost.');
   }
 
   const permission = await Notification.requestPermission();
