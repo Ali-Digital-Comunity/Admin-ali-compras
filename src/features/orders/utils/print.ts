@@ -24,20 +24,50 @@ const formatMoney = (value: unknown) => {
   return (Number.isFinite(number) ? number : 0).toFixed(2).replace(".", ",");
 };
 
+const printableText = (value: unknown) => String(value ?? "").trim();
+
+const renderStoreHeader = (store: any) => {
+  const name = printableText(store?.nome);
+  const corporateName = printableText(store?.razao_social);
+  const cnpj = printableText(store?.cnpj);
+  const phone = printableText(store?.telefone);
+  const email = printableText(store?.email);
+  const slogan = printableText(store?.slogan);
+  const lines = [
+    name ? `<p class="large bold">${escapeHtml(name)}</p>` : "",
+    corporateName && corporateName !== name
+      ? `<p style="font-size:10px">${escapeHtml(corporateName)}</p>`
+      : "",
+    cnpj ? `<p style="font-size:10px">CNPJ: ${escapeHtml(cnpj)}</p>` : "",
+    phone ? `<p style="font-size:10px">Tel: ${escapeHtml(phone)}</p>` : "",
+    email ? `<p style="font-size:10px">${escapeHtml(email)}</p>` : "",
+    slogan ? `<p style="font-size:10px">${escapeHtml(slogan)}</p>` : "",
+  ].filter(Boolean);
+
+  if (lines.length === 0) return "";
+
+  return `<div class="center">${lines.join("")}</div><div class="divider-solid"></div>`;
+};
+
 export const printComanda = (
   order: any,
   orderItems: any[] = [],
+  store?: any,
   targetWindow?: Window | null,
 ) => {
   const subtotal = orderItems.reduce(
     (value, item) => value + getOrderItemTotal(item),
     0,
   );
-  const delivery = isDeliveryOrder(order) ? order.taxa_entrega || 6.99 : 0;
+  const delivery = isDeliveryOrder(order)
+    ? order.taxa_entrega ?? store?.taxa_entrega_padrao ?? 0
+    : 0;
   const total = order.total ?? order.valor_total ?? 0;
   const orderDate = order.realizado_em || order.criado_em || order.created_at || new Date();
   const orderNumber = escapeHtml(order.numero_pedido || order.id);
   const isDelivery = isDeliveryOrder(order);
+  const storeHeader = renderStoreHeader(store);
+  const storeName = printableText(store?.nome);
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -60,13 +90,7 @@ export const printComanda = (
   </style>
 </head>
 <body>
-  <div class="center">
-    <p class="large bold">SÃO JORGE SUPER</p>
-    <p style="font-size:10px">CNPJ: 00.000.000/0001-00</p>
-    <p style="font-size:10px">Rua São Jorge, 100 – Centro</p>
-    <p style="font-size:10px">Tel: (11) 3000-0000</p>
-  </div>
-  <div class="divider-solid"></div>
+  ${storeHeader}
   <div class="center">
     <p class="bold large">COMANDA DE PEDIDO</p>
     <p>Pedido: <span class="bold">${orderNumber}</span></p>
@@ -102,8 +126,7 @@ export const printComanda = (
   <div class="divider-solid"></div>
   <div class="center" style="margin-top: 8px;">
     <p>Obrigado pela preferência!</p>
-    <p class="bold" style="margin-top:4px">São Jorge Super</p>
-    <p style="font-size:10px;margin-top:2px">www.saojorgesuper.com.br</p>
+    ${storeName ? `<p class="bold" style="margin-top:4px">${escapeHtml(storeName)}</p>` : ""}
   </div>
   <script>window.onload = function() { window.print(); window.onafterprint = function() { window.close(); }; }</script>
 </body>
@@ -116,11 +139,12 @@ export const printComanda = (
   }
 };
 
-export const printBairroRoute = (bairro: string, bairroOrders: any[]) => {
+export const printBairroRoute = (bairro: string, bairroOrders: any[], store?: any) => {
   const total = bairroOrders.reduce(
     (a, o) => a + parseFloat(o.valor_total || o.total || 0),
     0,
   );
+  const storeHeader = renderStoreHeader(store);
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -131,6 +155,7 @@ export const printBairroRoute = (bairro: string, bairroOrders: any[]) => {
     body { font-family: 'Courier New', Courier, monospace; max-width: 300px; margin: 0 auto; padding: 16px; font-size: 12px; }
     .center { text-align: center; }
     .bold { font-weight: bold; }
+    .large { font-size: 15px; }
     .divider { border-top: 1px dashed #000; margin: 8px 0; }
     .divider-solid { border-top: 1px solid #000; margin: 8px 0; }
     .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
@@ -140,8 +165,8 @@ export const printBairroRoute = (bairro: string, bairroOrders: any[]) => {
   </style>
 </head>
 <body>
+  ${storeHeader}
   <div class="center">
-    <p class="bold" style="font-size:15px">SÃO JORGE SUPER</p>
     <p style="font-size:10px">FOLHA DE ROTA</p>
   </div>
   <div class="divider-solid"></div>

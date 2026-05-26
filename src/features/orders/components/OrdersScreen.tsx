@@ -94,6 +94,7 @@ export function OrdersScreen() {
   const [loadingOpenRoutes, setLoadingOpenRoutes] = useState(false);
   const [confirmStep, setConfirmStep] = useState(false);
   const [primaryColor, setPrimaryColor] = useState(PRIMARY);
+  const [storePrintData, setStorePrintData] = useState<any | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const PER_PAGE = 20;
 
@@ -114,15 +115,35 @@ export function OrdersScreen() {
   }, [statusFilter, typeFilter]);
 
   useEffect(() => {
-    if (!user?.loja_id) return;
+    if (!user?.loja_id) {
+      setPrimaryColor(PRIMARY);
+      setStorePrintData(null);
+      return;
+    }
 
-    api
-      .get(`/lojas/${user.loja_id}/configuracoes`)
-      .then((res) => {
-        const config = res.data?.data || res.data;
-        if (config?.cor_primaria) setPrimaryColor(config.cor_primaria);
-      })
-      .catch(() => setPrimaryColor(PRIMARY));
+    let active = true;
+    Promise.allSettled([
+      api.get(`/lojas/${user.loja_id}`),
+      api.get(`/lojas/${user.loja_id}/configuracoes`),
+    ]).then(([storeResult, configResult]) => {
+      if (!active) return;
+
+      const store =
+        storeResult.status === "fulfilled"
+          ? storeResult.value.data?.data || storeResult.value.data || {}
+          : {};
+      const config =
+        configResult.status === "fulfilled"
+          ? configResult.value.data?.data || configResult.value.data || {}
+          : {};
+
+      setPrimaryColor(config.cor_primaria || PRIMARY);
+      setStorePrintData({ ...store, slogan: config.slogan });
+    });
+
+    return () => {
+      active = false;
+    };
   }, [user?.loja_id]);
 
   useEffect(() => {
@@ -309,7 +330,12 @@ export function OrdersScreen() {
       const items = await loadOrderItems(order.id);
       const orderPayment =
         selected?.id === order.id ? selectedPayments[0] || order.pagamento : order.pagamento;
-      printComanda({ ...order, pagamento: orderPayment }, items, printWindow);
+      printComanda(
+        { ...order, pagamento: orderPayment },
+        items,
+        storePrintData,
+        printWindow,
+      );
     } catch {
       printWindow.close();
       showSystemNotice(
@@ -1247,7 +1273,7 @@ export function OrdersScreen() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          printBairroRoute(bairro, group.orders);
+                          printBairroRoute(bairro, group.orders, storePrintData);
                         }}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors hover:opacity-80"
                         style={{
@@ -1676,7 +1702,11 @@ export function OrdersScreen() {
                     <span>Taxa de entrega</span>
                     <span>
                       R${" "}
-                      {parseFloat(selected.taxa_entrega || 6.99)
+                      {parseFloat(
+                        selected.taxa_entrega ??
+                          storePrintData?.taxa_entrega_padrao ??
+                          0,
+                      )
                         .toFixed(2)
                         .replace(".", ",")}
                     </span>
