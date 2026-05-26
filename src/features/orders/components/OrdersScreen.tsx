@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Printer,
   List,
+  Archive,
   Map as MapIcon,
   ChevronDown,
   ChevronRight,
@@ -71,7 +72,7 @@ export function OrdersScreen() {
   const [checklistItems, setChecklistItems] = useState<any[]>([]);
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [checklistError, setChecklistError] = useState("");
-  const [viewMode, setViewMode] = useState<"lista" | "bairros">("lista");
+  const [viewMode, setViewMode] = useState<"lista" | "bairros" | "arquivados">("lista");
   const [expandedBairros, setExpandedBairros] = useState<
     Record<string, boolean>
   >({});
@@ -81,6 +82,8 @@ export function OrdersScreen() {
   const [currentDelivery, setCurrentDelivery] = useState<any | null>(null);
   const [assigningCourier, setAssigningCourier] = useState(false);
   const [unassigningDeliveryId, setUnassigningDeliveryId] = useState("");
+  const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState("");
+  const [cancellingOrderId, setCancellingOrderId] = useState("");
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -112,7 +115,7 @@ export function OrdersScreen() {
     setPage(1);
     fetchOrders(1, true);
     fetchAuxiliaryData();
-  }, [statusFilter, typeFilter]);
+  }, [statusFilter, typeFilter, viewMode]);
 
   useEffect(() => {
     if (!user?.loja_id) {
@@ -199,10 +202,16 @@ export function OrdersScreen() {
       if (!options.silent) setLoading(true);
       const params: any = {
         page: pageNum,
-        per_page: PER_PAGE + 1, // Pesquisa 21 para saber se tem mais
-        status: frontendToBackendStatus[statusFilter],
+        per_page: PER_PAGE,
+        arquivado: viewMode === "arquivados" ? "true" : "false",
+        status:
+          viewMode === "arquivados"
+            ? undefined
+            : frontendToBackendStatus[statusFilter],
         tipo_pedido:
-          typeFilter === "Todos" ? undefined : typeFilter.toLowerCase(),
+          viewMode === "arquivados" || typeFilter === "Todos"
+            ? undefined
+            : typeFilter.toLowerCase(),
         busca: search || undefined,
       };
 
@@ -210,8 +219,10 @@ export function OrdersScreen() {
       const rawData = response.data.data;
       const data = Array.isArray(rawData) ? rawData : rawData?.data || [];
 
-      const more = data.length > PER_PAGE;
-      const displayData = more ? data.slice(0, PER_PAGE) : data;
+      const more = Array.isArray(rawData)
+        ? data.length > PER_PAGE
+        : pageNum < Number(rawData?.total_pages || pageNum);
+      const displayData = Array.isArray(rawData) && more ? data.slice(0, PER_PAGE) : data;
 
       setHasMore(more);
       setOrders((prev) => (reset ? displayData : [...prev, ...displayData]));
@@ -230,7 +241,7 @@ export function OrdersScreen() {
     }, 15000);
 
     return () => window.clearInterval(intervalId);
-  }, [statusFilter, typeFilter, search]);
+  }, [statusFilter, typeFilter, search, viewMode]);
 
   const handleLoadMore = () => {
     fetchOrders(page + 1);
@@ -515,6 +526,7 @@ export function OrdersScreen() {
     if (idx >= 0 && idx < backendStatusFlow.length - 1) {
       const nextStatus = backendStatusFlow[idx + 1];
       try {
+        setUpdatingStatusOrderId(id);
         const nextIsDeliveryStatus =
           nextStatus === "saiu_para_entrega" || nextStatus === "entregue";
 
@@ -563,6 +575,7 @@ export function OrdersScreen() {
         if (selected?.id === id) {
           setSelected((p: any) => (p ? { ...p, status: nextStatus } : null));
         }
+        await fetchOrders(1, true, { silent: true });
       } catch (error) {
         console.error("Error updating status", error);
         showSystemNotice(
@@ -571,20 +584,29 @@ export function OrdersScreen() {
             "Erro ao atualizar status. Verifique se as condições para este status foram atendidas (ex: entregador atribuído).",
           ),
         );
+      } finally {
+        setUpdatingStatusOrderId((currentId) => (currentId === id ? "" : currentId));
       }
     }
   };
 
   const cancelOrder = async (id: string) => {
     try {
+      setCancellingOrderId(id);
       await api.patch(`/pedidos/${id}/cancelar`);
       setOrders((prev) =>
         prev.map((o) => (o.id === id ? { ...o, status: "cancelado" } : o)),
       );
       if (selected?.id === id)
         setSelected((p: any) => (p ? { ...p, status: "cancelado" } : null));
+      await fetchOrders(1, true, { silent: true });
     } catch (error) {
       console.error("Error canceling order", error);
+      showSystemNotice(
+        getApiErrorMessage(error, "Erro ao cancelar pedido. Tente novamente."),
+      );
+    } finally {
+      setCancellingOrderId((currentId) => (currentId === id ? "" : currentId));
     }
   };
 
@@ -631,18 +653,24 @@ export function OrdersScreen() {
     selectedOrderIds.includes(order.id),
   );
   const selectedDeliveryCount = selectedDeliveryOrders.length;
-  const activeFiltersCount = [
-    search,
-    statusFilter !== "Todos",
-    typeFilter !== "Todos",
-    bairroFilter !== "Todos",
-  ].filter(Boolean).length;
+  const activeFiltersCount =
+    viewMode === "arquivados"
+      ? [search].filter(Boolean).length
+      : [
+          search,
+          statusFilter !== "Todos",
+          typeFilter !== "Todos",
+          bairroFilter !== "Todos",
+        ].filter(Boolean).length;
   const selectedPayment = selectedPayments[0] || selected?.pagamento || null;
   const selectedForPrint = selected
     ? { ...selected, pagamento: selectedPayment }
     : selected;
   const selectedPaymentMethod = getOrderPaymentMethod(selected, selectedPayment);
   const selectedPaymentStatus = getOrderPaymentStatus(selected, selectedPayment);
+  const selectedStatusUpdating = updatingStatusOrderId === selected?.id;
+  const selectedCancelling = cancellingOrderId === selected?.id;
+  const selectedOrderUpdating = selectedStatusUpdating || selectedCancelling;
   const selectedPaymentStatusClass = ["Aprovado", "Confirmado"].includes(
     selectedPaymentStatus,
   )
@@ -652,6 +680,38 @@ export function OrdersScreen() {
         )
       ? "text-red-600"
       : "text-amber-600";
+  const listGroups =
+    viewMode === "arquivados"
+      ? [
+          {
+            key: "arquivados",
+            title: "Arquivados",
+            description: "Entregues com pagamento aprovado",
+            orders: filtered,
+          },
+        ]
+      : [
+          {
+            key: "andamento",
+            title: "Em andamento",
+            description: "Pedidos que ainda exigem ação",
+            orders: filtered.filter(
+              (order) => !["entregue", "cancelado"].includes(order.status),
+            ),
+          },
+          {
+            key: "conferir",
+            title: "Entregues aguardando pagamento",
+            description: "Finalizados que ainda não podem ser arquivados",
+            orders: filtered.filter((order) => order.status === "entregue"),
+          },
+          {
+            key: "cancelados",
+            title: "Cancelados",
+            description: "Pedidos cancelados",
+            orders: filtered.filter((order) => order.status === "cancelado"),
+          },
+        ].filter((group) => group.orders.length > 0);
   const bairroGroups: Record<
     string,
     { orders: any[]; total: number; colorIdx: number }
@@ -864,6 +924,17 @@ export function OrdersScreen() {
               >
                 <MapIcon className="w-3.5 h-3.5" /> Por bairro
               </button>
+              <button
+                onClick={() => setViewMode("arquivados")}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={
+                  viewMode === "arquivados"
+                    ? { backgroundColor: PRIMARY, color: "white" }
+                    : { color: "#6b7280" }
+                }
+              >
+                <Archive className="w-3.5 h-3.5" /> Arquivados
+              </button>
             </div>
           </div>
 
@@ -877,9 +948,11 @@ export function OrdersScreen() {
                   <button
                     onClick={() => {
                       setSearch("");
-                      setStatusFilter("Todos");
-                      setTypeFilter(viewMode === "bairros" ? "Entrega" : "Todos");
-                      setBairroFilter("Todos");
+                      if (viewMode !== "arquivados") {
+                        setStatusFilter("Todos");
+                        setTypeFilter(viewMode === "bairros" ? "Entrega" : "Todos");
+                        setBairroFilter("Todos");
+                      }
                     }}
                     className="text-xs font-medium text-gray-500 hover:text-gray-800"
                   >
@@ -888,7 +961,7 @@ export function OrdersScreen() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div className={`grid grid-cols-1 gap-3 ${viewMode === "arquivados" ? "" : "lg:grid-cols-3"}`}>
                 <div className="relative">
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
                     Busca
@@ -902,42 +975,46 @@ export function OrdersScreen() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
-                  >
-                    {allStatuses.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {viewMode !== "arquivados" && (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
+                        Status
+                      </label>
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
+                      >
+                        {allStatuses.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
-                    Tipo
-                  </label>
-                  <select
-                    value={typeFilter}
-                    onChange={(e) => setTypeFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
-                  >
-                    {(viewMode === "bairros"
-                      ? ["Entrega"]
-                      : ["Todos", "Entrega", "Retirada"]
-                    ).map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
+                        Tipo
+                      </label>
+                      <select
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
+                      >
+                        {(viewMode === "bairros"
+                          ? ["Entrega"]
+                          : ["Todos", "Entrega", "Retirada"]
+                        ).map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
 
                 {viewMode === "bairros" && (
                   <div>
@@ -988,6 +1065,11 @@ export function OrdersScreen() {
                 </button>
               )}
             </div>
+          ) : viewMode === "arquivados" ? (
+            <span className="text-xs text-gray-500">
+              {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}{" "}
+              arquivado{filtered.length !== 1 ? "s" : ""}
+            </span>
           ) : (
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-gray-500">
@@ -1008,9 +1090,24 @@ export function OrdersScreen() {
         </div>
 
         {/* ── LISTA VIEW ─────────────────────────────── */}
-        {viewMode === "lista" && (
-          <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
-            {filtered.map((order, orderIndex) => {
+        {(viewMode === "lista" || viewMode === "arquivados") && (
+          <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 space-y-4">
+            {listGroups.map((group) => (
+              <section
+                key={group.key}
+                className="rounded-xl border border-gray-200 bg-white overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-gray-100 bg-white px-4 py-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-800">{group.title}</h3>
+                    <p className="text-xs text-gray-500">{group.description}</p>
+                  </div>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                    {group.orders.length}
+                  </span>
+                </div>
+                <div className="divide-y divide-gray-100">
+            {group.orders.map((order, orderIndex) => {
               const statusDisplay = getStatusLabel(order.status);
               const sc = statusColor[order.status] ||
                 statusColor["Recebido"] || { bg: "#fffbeb", text: "#d97706" };
@@ -1075,6 +1172,11 @@ export function OrdersScreen() {
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
                             {isEntrega ? "Entrega" : "Retirada"}
                           </span>
+                          {viewMode === "arquivados" && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-50 text-green-700">
+                              Pagamento aprovado
+                            </span>
+                          )}
                           {isEntrega && assignedDelivery?.entregador_id && (
                             <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
                               <span>Atribuído</span>
@@ -1147,9 +1249,12 @@ export function OrdersScreen() {
                 </div>
               );
             })}
+                </div>
+              </section>
+            ))}
 
             {hasMore && (
-              <div className="p-4 flex justify-center border-t border-gray-100">
+              <div className="p-4 flex justify-center">
                 <button
                   onClick={handleLoadMore}
                   disabled={loading}
@@ -1171,7 +1276,11 @@ export function OrdersScreen() {
             {filtered.length === 0 && !loading && (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400">
                 <Package className="w-10 h-10 mb-3 opacity-40" />
-                <p className="text-sm">Nenhum pedido encontrado</p>
+                <p className="text-sm">
+                  {viewMode === "arquivados"
+                    ? "Nenhum pedido arquivado encontrado"
+                    : "Nenhum pedido encontrado"}
+                </p>
               </div>
             )}
           </div>
@@ -1816,21 +1925,32 @@ export function OrdersScreen() {
                         getStatusLabel(selected.status),
                       )
                     }
-                    className="w-full py-2.5 rounded-lg text-white text-sm font-medium transition-opacity hover:opacity-90"
+                    disabled={selectedOrderUpdating}
+                    aria-busy={selectedStatusUpdating}
+                    className="w-full py-2.5 rounded-lg text-white text-sm font-medium transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-70 flex items-center justify-center gap-2"
                     style={{ backgroundColor: PRIMARY }}
                   >
-                    {getStatusLabel(selected.status) === "Recebido" &&
-                      "Confirmar Pedido"}
-                    {getStatusLabel(selected.status) === "Confirmado" &&
-                      "Iniciar Separação"}
-                    {getStatusLabel(selected.status) === "Em Separação" &&
-                      "Marcar como Pronto"}
-                    {getStatusLabel(selected.status) === "Pronto" &&
-                      ((selected.tipo_pedido || selected.type || "").toLowerCase() === "retirada"
-                        ? "Confirmar Retirada"
-                        : "Enviar para Entrega")}
-                    {getStatusLabel(selected.status) === "Saiu para Entrega" &&
-                      "Confirmar Entrega"}
+                    {selectedStatusUpdating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Atualizando...
+                      </>
+                    ) : (
+                      <>
+                        {getStatusLabel(selected.status) === "Recebido" &&
+                          "Confirmar Pedido"}
+                        {getStatusLabel(selected.status) === "Confirmado" &&
+                          "Iniciar Separação"}
+                        {getStatusLabel(selected.status) === "Em Separação" &&
+                          "Marcar como Pronto"}
+                        {getStatusLabel(selected.status) === "Pronto" &&
+                          ((selected.tipo_pedido || selected.type || "").toLowerCase() === "retirada"
+                            ? "Confirmar Retirada"
+                            : "Enviar para Entrega")}
+                        {getStatusLabel(selected.status) === "Saiu para Entrega" &&
+                          "Confirmar Entrega"}
+                      </>
+                    )}
                   </button>
                 )}
               <button
@@ -1849,9 +1969,18 @@ export function OrdersScreen() {
                 getStatusLabel(selected.status) !== "Entregue" && (
                   <button
                     onClick={() => cancelOrder(selected.id)}
-                    className="w-full py-2.5 rounded-lg text-red-600 text-sm font-medium border border-red-200 hover:bg-red-50 transition-colors"
+                    disabled={selectedOrderUpdating}
+                    aria-busy={selectedCancelling}
+                    className="w-full py-2.5 rounded-lg text-red-600 text-sm font-medium border border-red-200 hover:bg-red-50 transition-colors disabled:cursor-wait disabled:opacity-70 flex items-center justify-center gap-2"
                   >
-                    Cancelar Pedido
+                    {selectedCancelling ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Cancelando...
+                      </>
+                    ) : (
+                      "Cancelar Pedido"
+                    )}
                   </button>
                 )}
               <button className="w-full py-2.5 rounded-lg text-gray-600 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
