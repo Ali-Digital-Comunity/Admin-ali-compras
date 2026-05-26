@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { 
   Plus, Search, Filter, Edit2, Power, Eye, X, Package, 
-  ChevronDown, Grid2X2, List, Trash2, CheckCircle2, AlertCircle, Tag, Star, Zap, FileUp
+  ChevronDown, ChevronLeft, ChevronRight, Grid2X2, List, Trash2, CheckCircle2, AlertCircle, Tag, Star, Zap, FileUp
 } from 'lucide-react';
 import { showSystemNotice } from '@/shared/components/SystemNoticeModal';
 import { useProducts } from '../hooks/useProducts';
@@ -28,6 +28,13 @@ function getCategoryPath(categories: any[], categoryId?: string | null) {
   }
 
   return path;
+}
+
+function getPaginationPages(page: number, totalPages: number) {
+  const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const end = Math.min(totalPages, start + 4);
+
+  return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
 }
 
 function GlobalProductSelector({ existingProductIds, onSelect, onClose }: { existingProductIds: string[]; onSelect: (product: any) => void; onClose: () => void }) {
@@ -650,21 +657,60 @@ export function ProductsScreen() {
   const navigate = useNavigate();
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [departmentId, setDepartmentId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
   const {
     categories: dbCategories,
     categoryFilter,
     fetchProducts,
     filteredProducts: filtered,
     loading,
+    page,
+    perPage,
     products,
     search,
     setCategoryFilter,
+    setPage,
     setSearch,
     setStatusFilter,
     statusFilter,
+    total,
+    totalPages,
     toggleHighlight,
     toggleStatus,
   } = useProducts();
+  const departments = sortCategories(dbCategories.filter((category: any) => (category.nivel ?? 1) === 1));
+  const categories = sortCategories(dbCategories.filter((category: any) => category.categoria_pai_id === departmentId));
+  const subcategories = sortCategories(dbCategories.filter((category: any) => category.categoria_pai_id === categoryId));
+  const selectedDepartment = departments.find((category: any) => category.id === departmentId);
+  const selectedCategory = categories.find((category: any) => category.id === categoryId);
+  const visiblePages = getPaginationPages(page, totalPages);
+
+  const selectAllCategories = () => {
+    setDepartmentId('');
+    setCategoryId('');
+    setSubcategoryId('');
+    setCategoryFilter('Todas');
+  };
+
+  const selectDepartment = (id: string) => {
+    setDepartmentId(id);
+    setCategoryId('');
+    setSubcategoryId('');
+    setCategoryFilter(id);
+  };
+
+  const selectCategory = (id: string) => {
+    setCategoryId(id);
+    setSubcategoryId('');
+    setCategoryFilter(id);
+  };
+
+  const selectSubcategory = (id: string) => {
+    setSubcategoryId(id);
+    setCategoryFilter(id);
+  };
 
   return (
     <div className="h-full flex flex-col relative">
@@ -685,7 +731,7 @@ export function ProductsScreen() {
           isNew={!!editingProduct.isNew}
           categories={dbCategories}
           onClose={() => setEditingProduct(null)} 
-          onSuccess={fetchProducts}
+          onSuccess={() => fetchProducts({ forceRefresh: true })}
         />
       )}
 
@@ -720,18 +766,18 @@ export function ProductsScreen() {
         </div>
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <button
-            onClick={() => setCategoryFilter('Todas')}
+            onClick={selectAllCategories}
             className="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors"
             style={categoryFilter === 'Todas' ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
           >
             Todas
           </button>
-          {dbCategories.filter((c: any) => (c.nivel ?? 1) === 1).map(c => (
+          {departments.map(c => (
             <button
               key={c.id}
-              onClick={() => setCategoryFilter(c.id)}
+              onClick={() => selectDepartment(c.id)}
               className="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors flex items-center gap-1.5"
-              style={categoryFilter === c.id ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+              style={departmentId === c.id ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
             >
               <span>{c.emoji || '📁'}</span>
               {c.nome}
@@ -749,20 +795,72 @@ export function ProductsScreen() {
             </button>
           ))}
         </div>
+        {departmentId && categories.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pt-2 mt-2 border-t border-gray-100">
+            <span className="text-[11px] font-semibold text-gray-400 uppercase whitespace-nowrap">
+              {selectedDepartment?.nome}:
+            </span>
+            <button
+              onClick={() => selectDepartment(departmentId)}
+              className="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors"
+              style={!categoryId ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+            >
+              Todas
+            </button>
+            {categories.map((category: any) => (
+              <button
+                key={category.id}
+                onClick={() => selectCategory(category.id)}
+                className="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors"
+                style={categoryId === category.id ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+              >
+                {category.emoji || '📁'} {category.nome}
+              </button>
+            ))}
+          </div>
+        )}
+        {categoryId && subcategories.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pt-2 mt-2 border-t border-gray-100">
+            <span className="text-[11px] font-semibold text-gray-400 uppercase whitespace-nowrap">
+              {selectedCategory?.nome}:
+            </span>
+            <button
+              onClick={() => selectCategory(categoryId)}
+              className="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors"
+              style={!subcategoryId ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+            >
+              Todas
+            </button>
+            {subcategories.map((subcategory: any) => (
+              <button
+                key={subcategory.id}
+                onClick={() => selectSubcategory(subcategory.id)}
+                className="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors"
+                style={subcategoryId === subcategory.id ? { backgroundColor: PRIMARY, color: 'white' } : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+              >
+                {subcategory.emoji || '📁'} {subcategory.nome}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Count */}
       <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-        <span className="text-xs text-gray-500">{filtered.length} produto{filtered.length !== 1 ? 's' : ''}</span>
+        <span className="text-xs text-gray-500">
+          {total} produto{total !== 1 ? 's' : ''}
+          {total > 0 && ` · exibindo ${(page - 1) * perPage + 1}-${Math.min(page * perPage, total)}`}
+        </span>
       </div>
 
       {/* Table */}
       <div className="flex-1 overflow-auto relative">
-        {loading && products.length === 0 ? (
+        {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/50 z-10">
             <div className="w-8 h-8 border-4 border-gray-200 border-t-primary rounded-full animate-spin" style={{ borderColor: `${PRIMARY}40`, borderTopColor: PRIMARY }}></div>
           </div>
-        ) : (
+        )}
+        {(!loading || products.length > 0) && (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
@@ -873,6 +971,47 @@ export function ProductsScreen() {
           </div>
         )}
       </div>
+      {totalPages > 1 && (
+        <div className="border-t border-gray-200 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs text-gray-500">
+            Página {page} de {totalPages}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page === 1 || loading}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 px-2 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              Anterior
+            </button>
+            {visiblePages.map((pageNumber) => (
+              <button
+                type="button"
+                key={pageNumber}
+                onClick={() => setPage(pageNumber)}
+                disabled={loading}
+                className="h-8 min-w-8 rounded-lg px-2 text-xs font-semibold transition-colors disabled:opacity-50"
+                style={pageNumber === page
+                  ? { backgroundColor: PRIMARY, color: 'white' }
+                  : { backgroundColor: '#f3f4f6', color: '#6b7280' }}
+              >
+                {pageNumber}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPage(Math.min(totalPages, page + 1))}
+              disabled={page === totalPages || loading}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 px-2 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Próxima
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,10 @@
 import api from "@/shared/lib/api";
 import type { ProductStorePayload } from "../types/product";
 
+const STORE_PRODUCTS_CACHE_PREFIX = "admin-store-products:v1:";
+const ACTIVE_CATEGORIES_CACHE_KEY = "admin-active-categories:v1";
+const CACHE_MAX_AGE = 5 * 60 * 1000;
+
 const toList = (payload: any) => {
   const data = payload?.data;
   return Array.isArray(data) ? data : data?.data || [];
@@ -19,6 +23,53 @@ const toPaginatedProducts = (payload: any) => {
   };
 };
 
+const getSessionItem = <T,>(key: string): T | null => {
+  try {
+    const stored = sessionStorage.getItem(key);
+    if (!stored) return null;
+
+    const parsed = JSON.parse(stored);
+    if (!parsed?.createdAt || Date.now() - parsed.createdAt > CACHE_MAX_AGE) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+
+    return parsed.data as T;
+  } catch {
+    return null;
+  }
+};
+
+const setSessionItem = (key: string, data: unknown) => {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ createdAt: Date.now(), data }));
+  } catch {
+    // Network results remain usable if browser storage is unavailable.
+  }
+};
+
+const getStoreId = () => {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "{}")?.loja_id || "current";
+  } catch {
+    return "current";
+  }
+};
+
+const clearCacheByPrefix = (prefix: string) => {
+  try {
+    Object.keys(sessionStorage)
+      .filter((key) => key.startsWith(prefix))
+      .forEach((key) => sessionStorage.removeItem(key));
+  } catch {
+    // Ignore unavailable storage.
+  }
+};
+
+const invalidateStoreProductsCache = () => {
+  clearCacheByPrefix(STORE_PRODUCTS_CACHE_PREFIX);
+};
+
 export const productsService = {
   async getStoreProducts() {
     const response = await api.get("/produtos_loja");
@@ -30,21 +81,42 @@ export const productsService = {
     categoryId?: string;
     page: number;
     perPage: number;
+    active?: boolean;
     activeOnly?: boolean;
     promoOnly?: boolean;
-  }) {
+  }, options: { forceRefresh?: boolean } = {}) {
+    const active =
+      params.active !== undefined
+        ? params.active
+        : params.activeOnly
+          ? true
+          : undefined;
+    const cacheKey = `${STORE_PRODUCTS_CACHE_PREFIX}${JSON.stringify({
+      lojaId: getStoreId(),
+      search: params.search?.trim() || "",
+      categoryId: params.categoryId || "",
+      active,
+      promoOnly: Boolean(params.promoOnly),
+      page: params.page,
+      perPage: params.perPage,
+    })}`;
+    const cached = options.forceRefresh ? null : getSessionItem<ReturnType<typeof toPaginatedProducts>>(cacheKey);
+    if (cached) return cached;
+
     const response = await api.get("/produtos_loja", {
       params: {
         busca: params.search || undefined,
         categoria_id: params.categoryId || undefined,
-        ativo: params.activeOnly === false ? undefined : true,
+        ativo: active,
         promocao_ativa: params.promoOnly || undefined,
         page: params.page,
         per_page: params.perPage,
       },
     });
 
-    return toPaginatedProducts(response.data);
+    const result = toPaginatedProducts(response.data);
+    setSessionItem(cacheKey, result);
+    return result;
   },
 
   async getStoreProductsByIds(ids: string[]) {
@@ -87,8 +159,30 @@ export const productsService = {
   },
 
   async getActiveCategories() {
-    const response = await api.get("/categorias", { params: { ativa: true, per_page: 100 } });
-    return toList(response.data);
+    const cached = getSessionItem<any[]>(ACTIVE_CATEGORIES_CACHE_KEY);
+    if (cached) return cached;
+
+    const firstResponse = await api.get("/categorias", {
+      params: { ativa: true, page: 1, per_page: 100 },
+    });
+    const firstData = firstResponse.data?.data;
+    const totalPages = firstData?.total_pages || 1;
+    const remainingResponses = totalPages > 1
+      ? await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, index) =>
+            api.get("/categorias", {
+              params: { ativa: true, page: index + 2, per_page: 100 },
+            }),
+          ),
+        )
+      : [];
+    const categories = [
+      ...toList(firstResponse.data),
+      ...remainingResponses.flatMap((response) => toList(response.data)),
+    ];
+
+    setSessionItem(ACTIVE_CATEGORIES_CACHE_KEY, categories);
+    return categories;
   },
 
   async searchGlobalProducts(params: {
@@ -121,6 +215,7 @@ export const productsService = {
 
   async createStoreProduct(payload: ProductStorePayload) {
     const response = await api.post("/produtos_loja", payload);
+    invalidateStoreProductsCache();
     return response.data.data;
   },
 
@@ -133,11 +228,13 @@ export const productsService = {
       timeout: 60000,
     });
 
+    invalidateStoreProductsCache();
     return response.data.data;
   },
 
   async updateStoreProduct(productStoreId: string, payload: ProductStorePayload) {
     await api.patch(`/produtos_loja/${productStoreId}`, payload);
+    invalidateStoreProductsCache();
   },
 
   async createStoreProductVariation(payload: Record<string, any>) {
@@ -146,9 +243,13 @@ export const productsService = {
 
   async toggleHighlight(productStoreId: string, highlighted: boolean) {
     await api.patch(`/produtos_loja/${productStoreId}`, { destaque: highlighted });
+    invalidateStoreProductsCache();
   },
 
   async toggleStatus(productStoreId: string, active: boolean) {
     await api.patch(`/produtos_loja/${productStoreId}/ativo`, { ativo: active });
+    invalidateStoreProductsCache();
   },
+
+  invalidateStoreProductsCache,
 };

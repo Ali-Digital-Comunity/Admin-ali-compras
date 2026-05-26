@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { productsService } from "../services/productsService";
 import type { Product } from "../types/product";
 
+const PER_PAGE = 20;
+
 export function useProducts() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const requestId = useRef(0);
 
   const fetchCategories = async () => {
     try {
@@ -19,45 +26,74 @@ export function useProducts() {
     }
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (options: { forceRefresh?: boolean } = {}) => {
+    const currentRequestId = ++requestId.current;
     try {
       setLoading(true);
-      const data = await productsService.getStoreProducts();
-      setProducts(data);
+      const result = await productsService.getStoreProductsPage(
+        {
+          search: debouncedSearch,
+          categoryId: categoryFilter === "Todas" ? undefined : categoryFilter,
+          active:
+            statusFilter === "Ativo"
+              ? true
+              : statusFilter === "Inativo"
+                ? false
+                : undefined,
+          page,
+          perPage: PER_PAGE,
+        },
+        options,
+      );
+      if (currentRequestId !== requestId.current) return;
+
+      const availablePages = Math.max(1, result.totalPages);
+      if (page > availablePages) {
+        setPage(availablePages);
+        return;
+      }
+
+      setProducts(result.products);
+      setTotal(result.total);
+      setTotalPages(availablePages);
     } catch (error) {
-      console.error("Error fetching products:", error);
+      if (currentRequestId === requestId.current) {
+        console.error("Error fetching products:", error);
+      }
     } finally {
-      setLoading(false);
+      if (currentRequestId === requestId.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchCategories();
-    fetchProducts();
   }, []);
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
-      const productName = (product.nome || "").toLowerCase();
-      const productBrand = (product.marca || "").toLowerCase();
-      const searchTerm = search.toLowerCase();
-      const matchSearch = productName.includes(searchTerm) || productBrand.includes(searchTerm);
-      const productCategoryId = product.categoria_final_id || product.categoria_id || product.produto_categoria_id;
-      const categoryPathIds = new Set<string>();
-      let currentCategory = categories.find((category) => category.id === productCategoryId);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
-      while (currentCategory) {
-        categoryPathIds.add(currentCategory.id);
-        currentCategory = categories.find((category) => category.id === currentCategory.categoria_pai_id);
-      }
+  useEffect(() => {
+    fetchProducts();
+  }, [categoryFilter, debouncedSearch, page, statusFilter]);
 
-      const matchCategory = categoryFilter === "Todas" || categoryPathIds.has(categoryFilter);
-      const displayStatus = product.ativo_na_loja ? "Ativo" : "Inativo";
-      const matchStatus = statusFilter === "Todos" || displayStatus === statusFilter;
+  const changeSearch = (value: string) => {
+    setSearch(value);
+    setPage(1);
+  };
 
-      return matchSearch && matchCategory && matchStatus;
-    });
-  }, [categories, categoryFilter, products, search, statusFilter]);
+  const changeCategoryFilter = (value: string) => {
+    setCategoryFilter(value);
+    setPage(1);
+  };
+
+  const changeStatusFilter = (value: string) => {
+    setStatusFilter(value);
+    setPage(1);
+  };
 
   const toggleHighlight = async (id: string, currentStatus: boolean) => {
     try {
@@ -75,11 +111,7 @@ export function useProducts() {
   const toggleStatus = async (id: string, currentStatus: boolean) => {
     try {
       await productsService.toggleStatus(id, !currentStatus);
-      setProducts((currentProducts) =>
-        currentProducts.map((product) =>
-          product.id === id ? { ...product, ativo_na_loja: !currentStatus } : product,
-        ),
-      );
+      await fetchProducts({ forceRefresh: true });
     } catch (error) {
       console.error("Error updating status", error);
     }
@@ -89,14 +121,19 @@ export function useProducts() {
     categories,
     categoryFilter,
     fetchProducts,
-    filteredProducts,
+    filteredProducts: products,
     loading,
+    page,
+    perPage: PER_PAGE,
     products,
     search,
-    setCategoryFilter,
-    setSearch,
-    setStatusFilter,
+    setCategoryFilter: changeCategoryFilter,
+    setPage,
+    setSearch: changeSearch,
+    setStatusFilter: changeStatusFilter,
     statusFilter,
+    total,
+    totalPages,
     toggleHighlight,
     toggleStatus,
   };
