@@ -44,6 +44,18 @@ const audienceLabel = (audience: CampaignAudience) => (
   audienceOptions.find((option) => option.value === audience)?.label || audience
 );
 
+const deepLinkOptions = [
+  { value: '/promocoes', label: 'Promoções' },
+  { value: '/banners', label: 'Banners' },
+  { value: '/ofertas', label: 'Ofertas' },
+  { value: '/categorias', label: 'Categorias' },
+  { value: '/carrinho', label: 'Carrinho' },
+  { value: '/orders', label: 'Meus pedidos' },
+  { value: '/notifications', label: 'Notificações' },
+  { value: '/profile', label: 'Perfil' },
+  { value: '/support', label: 'Suporte' },
+];
+
 export function NotificationsScreen() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<'history' | 'campaigns'>('history');
@@ -245,7 +257,12 @@ export function NotificationsScreen() {
             <input required maxLength={120} placeholder="Título" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
             <textarea required maxLength={500} rows={4} placeholder="Mensagem" value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm resize-none" />
             <input type="url" placeholder="URL de imagem (opcional)" value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
-            <input placeholder="Link interno, ex.: /promocoes" value={form.deep_link} onChange={(e) => setForm({ ...form, deep_link: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            <label className="block text-xs font-medium text-gray-700">
+              Caminho ao tocar na notificação
+              <select value={form.deep_link} onChange={(e) => setForm({ ...form, deep_link: e.target.value })} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white">
+                {deepLinkOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
             <label className="block text-xs font-medium text-gray-700">
               Segmentação
               <select value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as CampaignAudience })} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm bg-white">

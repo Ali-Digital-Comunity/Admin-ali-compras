@@ -10,6 +10,7 @@ const PRIMARY = '#122a4c';
 
 export function PromotionsScreen() {
   const [search, setSearch] = useState('');
+  const [addPromoSearch, setAddPromoSearch] = useState('');
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingPrice, setEditingPrice] = useState<{ id: string, name: string, price: string, promoPrice: string } | null>(null);
@@ -81,8 +82,27 @@ export function PromotionsScreen() {
   const filtered = products.filter(p => {
     const pName = (p.nome || '').toLowerCase();
     const pBrand = (p.marca || '').toLowerCase();
+    const pSku = (p.codigo_barras || p.sku || '').toLowerCase();
+    const pCategory = (p.categoria?.nome || p.categoria_nome || '').toLowerCase();
     const sTerm = search.toLowerCase();
-    return pName.includes(sTerm) || pBrand.includes(sTerm);
+    return pName.includes(sTerm) || pBrand.includes(sTerm) || pSku.includes(sTerm) || pCategory.includes(sTerm);
+  });
+
+  const availableProducts = allStoreProducts.filter((p) => {
+    const hasPromotion = p.preco_promocional !== null && p.preco_promocional !== undefined;
+    if (hasPromotion) return false;
+
+    const term = addPromoSearch.trim().toLowerCase();
+    if (!term) return true;
+
+    return [
+      p.nome,
+      p.marca,
+      p.codigo_barras,
+      p.sku,
+      p.categoria?.nome,
+      p.categoria_nome,
+    ].some((value) => String(value || '').toLowerCase().includes(term));
   });
 
   const calculateDiscount = (price: number, promoPrice: number) => {
@@ -256,20 +276,15 @@ export function PromotionsScreen() {
                     <input
                       autoFocus
                       placeholder="Buscar por nome ou marca..."
+                      value={addPromoSearch}
                       className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
-                      onChange={e => {
-                         // Apenas filtro local para velocidade
-                         const term = e.target.value.toLowerCase();
-                         // (Implementar filtro local se quiser feedback em tempo real no modal)
-                      }}
+                      onChange={e => setAddPromoSearch(e.target.value)}
                     />
                  </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-                 {allStoreProducts
-                   .filter(p => p.preco_promocional === null || p.preco_promocional === undefined)
-                   .map(p => (
+                 {availableProducts.map(p => (
                     <button
                        key={p.id}
                        onClick={() => setEditingPrice({ 
@@ -300,6 +315,11 @@ export function PromotionsScreen() {
                        </div>
                     </button>
                  ))}
+                 {availableProducts.length === 0 && (
+                   <div className="py-8 text-center text-sm text-gray-500">
+                     Nenhum produto disponível encontrado.
+                   </div>
+                 )}
               </div>
            </div>
         </div>

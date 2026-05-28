@@ -1083,7 +1083,6 @@ export function SettingsScreen() {
                   "Pedido atrasado",
                   "Produto sem estoque",
                   "Falha em pagamento",
-                  "Campanha encerrando",
                   "Cupom expirando",
                   "Novo cliente cadastrado",
                   "Entrega concluída",

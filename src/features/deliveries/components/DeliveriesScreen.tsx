@@ -331,8 +331,14 @@ export function DeliveriesScreen() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-gray-500">
-                      <span>{getPendingCount(route)} pendentes</span>
-                      <span>{getDeliveredCount(route)} concluídos</span>
+                      {isExpanded ? (
+                        <>
+                          <span>{getPendingCount(route)} pendentes</span>
+                          <span>{getDeliveredCount(route)} concluídos</span>
+                        </>
+                      ) : (
+                        <span>Clique para ver detalhes dos pedidos.</span>
+                      )}
                       {(route.totalDistanceKm || route.total_distance_km) && <span>{String(route.totalDistanceKm || route.total_distance_km).replace('.', ',')} km</span>}
                       {(route.totalDurationText || route.total_duration_text) && <span>{route.totalDurationText || route.total_duration_text}</span>}
                     </div>
@@ -343,34 +349,6 @@ export function DeliveriesScreen() {
                   <div className="flex justify-end text-gray-400">
                     {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   </div>
-                  {!route.optimized && route.status !== 'completed' && route.status !== 'canceled' && (
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        generateRoute(routeId);
-                      }}
-                      disabled={isUpdating}
-                      className="px-3 py-1.5 rounded-lg text-white text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center gap-1.5"
-                      style={{ backgroundColor: PRIMARY }}
-                    >
-                      {isUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
-                      Gerar rota
-                    </button>
-                  )}
-                  {route.optimized && route.status === 'planned' && (
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        startRoute(routeId);
-                      }}
-                      disabled={isUpdating}
-                      className="px-3 py-1.5 rounded-lg text-white text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center gap-1.5"
-                      style={{ backgroundColor: PRIMARY }}
-                    >
-                      {isUpdating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
-                      Iniciar
-                    </button>
-                  )}
                   {googleMapsUrl && (
                     <a
                       href={googleMapsUrl}

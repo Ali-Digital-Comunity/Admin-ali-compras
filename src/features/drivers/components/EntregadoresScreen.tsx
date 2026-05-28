@@ -13,6 +13,7 @@ const vehicleIcons: Record<string, any> = {
   'moto': Truck,
   'carro': Car,
   'bike': Bike,
+  'van': Car,
   'outro': User
 };
 
@@ -31,8 +32,20 @@ export function EntregadoresScreen() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [vehicleForm, setVehicleForm] = useState({
+    id: '',
+    tipo: 'moto',
+    marca: '',
+    modelo: '',
+    placa: '',
+    cor: '',
+    ano: '',
+    status: 'ativo'
+  });
 
   // Form state
   const [formData, setFormData] = useState({
@@ -40,6 +53,7 @@ export function EntregadoresScreen() {
     nome: '',
     telefone: '',
     tipo_veiculo: 'moto',
+    automovel_id: '',
     documento: '',
     status: 'ativo',
     createLogin: false,
@@ -69,8 +83,19 @@ export function EntregadoresScreen() {
     }
   };
 
+  const fetchVehicles = async () => {
+    try {
+      const response = await api.get('/automoveis', { params: { loja_id: user?.loja_id, per_page: 100 } });
+      const data = response.data.data;
+      setVehicles(Array.isArray(data) ? data : data?.data || []);
+    } catch (error) {
+      console.error('Error fetching vehicles:', error);
+    }
+  };
+
   useEffect(() => {
     fetchCouriers();
+    fetchVehicles();
   }, []);
 
   const handleOpenModal = (courier?: any) => {
@@ -80,6 +105,7 @@ export function EntregadoresScreen() {
         nome: courier.nome,
         telefone: courier.telefone || '',
         tipo_veiculo: courier.tipo_veiculo || 'moto',
+        automovel_id: courier.automovel_id || '',
         documento: courier.documento || '',
         status: courier.status || 'ativo',
         createLogin: false,
@@ -92,6 +118,7 @@ export function EntregadoresScreen() {
         nome: '',
         telefone: '',
         tipo_veiculo: 'moto',
+        automovel_id: '',
         documento: '',
         status: 'ativo',
         createLogin: false,
@@ -111,6 +138,7 @@ export function EntregadoresScreen() {
         nome: formData.nome,
         telefone: formData.telefone,
         tipo_veiculo: formData.tipo_veiculo,
+        automovel_id: formData.automovel_id || null,
         documento: formData.documento,
         status: formData.status,
         loja_id: user?.loja_id
@@ -148,9 +176,64 @@ export function EntregadoresScreen() {
 
       setIsModalOpen(false);
       fetchCouriers();
+      fetchVehicles();
     } catch (error) {
       console.error('Error saving courier:', error);
       showSystemNotice('Erro ao salvar entregador. Verifique os dados e tente novamente.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenVehicleModal = (vehicle?: any) => {
+    setVehicleForm(vehicle ? {
+      id: vehicle.id,
+      tipo: vehicle.tipo || 'moto',
+      marca: vehicle.marca || '',
+      modelo: vehicle.modelo || '',
+      placa: vehicle.placa || '',
+      cor: vehicle.cor || '',
+      ano: vehicle.ano ? String(vehicle.ano) : '',
+      status: vehicle.status || 'ativo',
+    } : {
+      id: '',
+      tipo: 'moto',
+      marca: '',
+      modelo: '',
+      placa: '',
+      cor: '',
+      ano: '',
+      status: 'ativo',
+    });
+    setIsVehicleModalOpen(true);
+  };
+
+  const handleVehicleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSubmitting(true);
+      const payload = {
+        tipo: vehicleForm.tipo,
+        marca: vehicleForm.marca || null,
+        modelo: vehicleForm.modelo,
+        placa: vehicleForm.placa || null,
+        cor: vehicleForm.cor || null,
+        ano: vehicleForm.ano ? Number(vehicleForm.ano) : null,
+        status: vehicleForm.status,
+        loja_id: user?.loja_id,
+      };
+
+      if (vehicleForm.id) {
+        await api.patch(`/automoveis/${vehicleForm.id}`, payload);
+      } else {
+        await api.post('/automoveis', payload);
+      }
+
+      setIsVehicleModalOpen(false);
+      fetchVehicles();
+    } catch (error) {
+      console.error('Error saving vehicle:', error);
+      showSystemNotice('Erro ao salvar automóvel. Verifique os dados e tente novamente.');
     } finally {
       setSubmitting(false);
     }
@@ -188,6 +271,13 @@ export function EntregadoresScreen() {
           <Plus className="w-4 h-4" />
           Novo Entregador
         </button>
+        <button
+          onClick={() => handleOpenVehicleModal()}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold text-sm transition-all hover:bg-gray-50 active:scale-95"
+        >
+          <Car className="w-4 h-4" />
+          Novo Automóvel
+        </button>
       </div>
 
       {/* Stats row */}
@@ -196,7 +286,7 @@ export function EntregadoresScreen() {
           { label: 'Total', value: couriers.length, icon: Truck, color: PRIMARY, bg: '#eef2f9' },
           { label: 'Ativos', value: couriers.filter(c => c.status === 'ativo' || c.status === 'disponivel').length, icon: CheckCircle2, color: '#16a34a', bg: '#f0fdf4' },
           { label: 'Em Rota', value: couriers.filter(c => c.status === 'ocupado').length, icon: Bike, color: '#ea580c', bg: '#fff7ed' },
-          { label: 'Inativos', value: couriers.filter(c => c.status === 'inativo' || c.status === 'bloqueado').length, icon: AlertCircle, color: '#dc2626', bg: '#fef2f2' },
+          { label: 'Automóveis', value: vehicles.length, icon: Car, color: '#2563eb', bg: '#eff6ff' },
         ].map(stat => (
           <div key={stat.label} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center gap-3">
@@ -245,7 +335,9 @@ export function EntregadoresScreen() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filteredCouriers.map(courier => {
-                const VehicleIcon = vehicleIcons[courier.tipo_veiculo] || User;
+                const vehicle = courier.automovel || vehicles.find((item) => item.id === courier.automovel_id);
+                const vehicleType = vehicle?.tipo || courier.tipo_veiculo;
+                const VehicleIcon = vehicleIcons[vehicleType] || User;
                 const sc = statusColors[courier.status] || { bg: '#f3f4f6', text: '#6b7280' };
                 return (
                   <tr key={courier.id} className="hover:bg-gray-50/50 transition-colors group">
@@ -265,8 +357,11 @@ export function EntregadoresScreen() {
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 border border-gray-200 w-fit">
                         <VehicleIcon className="w-3.5 h-3.5" />
-                        <span className="text-xs font-bold capitalize">{courier.tipo_veiculo || 'N/A'}</span>
+                        <span className="text-xs font-bold capitalize">
+                          {vehicle ? `${vehicle.marca || ''} ${vehicle.modelo || ''}`.trim() : courier.tipo_veiculo || 'N/A'}
+                        </span>
                       </div>
+                      {vehicle?.placa && <div className="text-[11px] text-gray-400 mt-1">{vehicle.placa}</div>}
                     </td>
                     <td className="px-5 py-4 text-sm text-gray-600 font-medium">{courier.documento || '—'}</td>
                     <td className="px-5 py-4">
@@ -312,6 +407,41 @@ export function EntregadoresScreen() {
           </table>
         </div>
       </div>
+
+      {vehicles.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-gray-900">Automóveis</h3>
+              <p className="text-xs text-gray-500">Veículos disponíveis para vincular aos entregadores</p>
+            </div>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {vehicles.map((vehicle) => (
+              <button
+                key={vehicle.id}
+                onClick={() => handleOpenVehicleModal(vehicle)}
+                className="w-full px-5 py-3 text-left hover:bg-gray-50 flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+                    <Car className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-gray-800 truncate">
+                      {[vehicle.marca, vehicle.modelo].filter(Boolean).join(' ') || 'Automóvel'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {[vehicle.tipo, vehicle.placa, vehicle.cor].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-400">{vehicle.entregador_nome || 'Sem vínculo'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Modal Add/Edit */}
       {isModalOpen && (
@@ -370,6 +500,22 @@ export function EntregadoresScreen() {
                     <option value="carro">Carro</option>
                     <option value="bike">Bicicleta</option>
                     <option value="outro">Outro</option>
+                  </select>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Automóvel vinculado</label>
+                  <select
+                    value={formData.automovel_id}
+                    onChange={e => setFormData({ ...formData, automovel_id: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm appearance-none"
+                  >
+                    <option value="">Sem automóvel vinculado</option>
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {[vehicle.marca, vehicle.modelo, vehicle.placa].filter(Boolean).join(' · ')}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -465,6 +611,91 @@ export function EntregadoresScreen() {
                   style={{ backgroundColor: PRIMARY }}
                 >
                   {submitting ? 'Salvando...' : formData.id ? 'Salvar Alterações' : 'Criar Entregador'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isVehicleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div>
+                <h3 className="font-bold text-gray-900 text-lg">{vehicleForm.id ? 'Editar Automóvel' : 'Novo Automóvel'}</h3>
+                <p className="text-xs text-gray-500 font-medium">Cadastre o veículo usado nas entregas</p>
+              </div>
+              <button onClick={() => setIsVehicleModalOpen(false)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleVehicleSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Tipo</label>
+                  <select
+                    value={vehicleForm.tipo}
+                    onChange={e => setVehicleForm({ ...vehicleForm, tipo: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm appearance-none"
+                  >
+                    <option value="moto">Moto</option>
+                    <option value="carro">Carro</option>
+                    <option value="bike">Bicicleta</option>
+                    <option value="van">Van</option>
+                    <option value="outro">Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Status</label>
+                  <select
+                    value={vehicleForm.status}
+                    onChange={e => setVehicleForm({ ...vehicleForm, status: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm appearance-none"
+                  >
+                    <option value="ativo">Ativo</option>
+                    <option value="inativo">Inativo</option>
+                    <option value="manutencao">Manutenção</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Marca</label>
+                  <input value={vehicleForm.marca} onChange={e => setVehicleForm({ ...vehicleForm, marca: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm" placeholder="Honda" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Modelo</label>
+                  <input required value={vehicleForm.modelo} onChange={e => setVehicleForm({ ...vehicleForm, modelo: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm" placeholder="CG 160" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Placa</label>
+                  <input value={vehicleForm.placa} onChange={e => setVehicleForm({ ...vehicleForm, placa: e.target.value.toUpperCase() })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm uppercase" placeholder="ABC1D23" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Cor</label>
+                  <input value={vehicleForm.cor} onChange={e => setVehicleForm({ ...vehicleForm, cor: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm" placeholder="Vermelha" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Ano</label>
+                  <input type="number" min={1900} max={2100} value={vehicleForm.ano} onChange={e => setVehicleForm({ ...vehicleForm, ano: e.target.value })} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all text-sm" placeholder="2024" />
+                </div>
+              </div>
+
+              <div className="pt-4 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsVehicleModalOpen(false)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-white font-bold text-sm transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                  style={{ backgroundColor: PRIMARY }}
+                >
+                  {submitting ? 'Salvando...' : vehicleForm.id ? 'Salvar Automóvel' : 'Criar Automóvel'}
                 </button>
               </div>
             </form>

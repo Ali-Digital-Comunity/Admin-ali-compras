@@ -680,6 +680,9 @@ export function OrdersScreen() {
         )
       ? "text-red-600"
       : "text-amber-600";
+  const selectedIsDelivery = String(selected?.tipo_pedido || selected?.type || "").toLowerCase() === "entrega";
+  const selectedStatusLabel = selected ? getStatusLabel(selected.status) : "";
+  const adminCannotDispatchDelivery = selectedIsDelivery && selectedStatusLabel === "Pronto";
   const listGroups =
     viewMode === "arquivados"
       ? [
@@ -1681,7 +1684,7 @@ export function OrdersScreen() {
                     >
                       <div className="flex flex-col items-center">
                         <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center"
+                          className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
                           style={{
                             backgroundColor: done ? PRIMARY : "#e5e7eb",
                           }}
@@ -1917,7 +1920,8 @@ export function OrdersScreen() {
             {/* Actions */}
             <div className="space-y-2">
               {getStatusLabel(selected.status) !== "Entregue" &&
-                getStatusLabel(selected.status) !== "Cancelado" && (
+                getStatusLabel(selected.status) !== "Cancelado" &&
+                !adminCannotDispatchDelivery && (
                   <button
                     onClick={() =>
                       advanceStatus(
@@ -1946,13 +1950,18 @@ export function OrdersScreen() {
                         {getStatusLabel(selected.status) === "Pronto" &&
                           ((selected.tipo_pedido || selected.type || "").toLowerCase() === "retirada"
                             ? "Confirmar Retirada"
-                            : "Enviar para Entrega")}
+                            : "")}
                         {getStatusLabel(selected.status) === "Saiu para Entrega" &&
                           "Confirmar Entrega"}
                       </>
                     )}
                   </button>
                 )}
+              {adminCannotDispatchDelivery && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Pedido pronto. A saída para entrega deve ser iniciada pelo entregador.
+                </div>
+              )}
               <button
                 onClick={() => handlePrintComanda(selectedForPrint)}
                 className="w-full py-2.5 rounded-lg text-gray-700 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"

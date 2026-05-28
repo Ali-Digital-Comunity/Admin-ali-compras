@@ -90,7 +90,7 @@ const getSalesPointDate = (point: any, fallbackDate?: string) => {
 };
 
 const getSalesPointValue = (point: any) => {
-  const value = point?.vendas ?? point?.valor ?? point?.total ?? point?.revenue ?? 0;
+  const value = point?.pedidos ?? point?.quantidade ?? point?.orders ?? point?.vendas ?? point?.valor ?? point?.total ?? point?.revenue ?? 0;
   const number = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
   return Number.isFinite(number) ? number : 0;
 };
@@ -121,7 +121,7 @@ const buildSalesChartData = (rawData: any[], selectedDate: string, intervalMinut
 
     return {
       hour: label,
-      vendas: 0,
+      pedidos: 0,
       start: formatTimeLabel(startMinutes),
       end: formatTimeLabel(endMinutes - 1),
     };
@@ -138,13 +138,13 @@ const buildSalesChartData = (rawData: any[], selectedDate: string, intervalMinut
         bucketCount - 1,
         Math.floor(getMinutesSinceStartOfDay(pointDate) / safeInterval)
       );
-      buckets[bucketIndex].vendas += getSalesPointValue(point);
+      buckets[bucketIndex].pedidos += getSalesPointValue(point);
     });
     return buckets;
   }
 
   if (rawData.length === bucketCount) {
-    return buckets.map((bucket, index) => ({ ...bucket, vendas: getSalesPointValue(rawData[index]) }));
+    return buckets.map((bucket, index) => ({ ...bucket, pedidos: getSalesPointValue(rawData[index]) }));
   }
 
   return buckets;
@@ -224,7 +224,11 @@ export function DashboardScreen() {
     { label: 'Em Rota', value: metrics?.pedidosEmRota || '0', sub: 'Atuais', icon: Truck, color: '#ea580c', bg: '#fff7ed' },
   ];
 
-  const rawSalesData = Array.isArray(metrics?.vendasSemana) ? metrics.vendasSemana : [];
+  const rawSalesData = Array.isArray(metrics?.hourlyData) && metrics.hourlyData.length
+    ? metrics.hourlyData
+    : Array.isArray(metrics?.vendasSemana)
+      ? metrics.vendasSemana
+      : [];
   const salesData = buildSalesChartData(rawSalesData, selectedDate, salesIntervalMinutes);
   const salesIntervalLabel = `${formatDisplayDate(selectedDate)} · ${salesIntervalMinutes} min`;
   const statusData = metrics?.statusData || [];
@@ -310,23 +314,23 @@ export function DashboardScreen() {
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-gray-800 font-semibold">Vendas por Hora</h3>
-              <p className="text-gray-400 text-xs mt-0.5">Faturamento por intervalo de minutos em R$</p>
+              <h3 className="text-gray-800 font-semibold">Pedidos por Hora</h3>
+              <p className="text-gray-400 text-xs mt-0.5">Quantidade de pedidos por intervalo</p>
             </div>
             <div className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white">
               {salesIntervalLabel}
             </div>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={salesData.length ? salesData : [{ hour: '00:00', vendas: 0 }]} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+            <LineChart data={salesData.length ? salesData : [{ hour: '00:00', pedidos: 0 }]} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={18} />
-              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
               <Tooltip
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-                formatter={(v: number) => [`R$ ${v.toLocaleString('pt-BR')}`, 'Vendas']}
+                formatter={(v: number) => [`${Number(v).toLocaleString('pt-BR')}`, 'Pedidos']}
               />
-              <Line type="monotone" dataKey="vendas" stroke={PRIMARY} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+              <Line type="monotone" dataKey="pedidos" stroke={PRIMARY} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

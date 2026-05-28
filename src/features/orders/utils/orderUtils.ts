@@ -197,6 +197,7 @@ export const getDeliveryLabel = (route: any) => {
 
 export const getCourierVehicleLabel = (courier: any) => {
   const vehicle =
+    courier?.automovel ||
     courier?.veiculo ||
     courier?.vehicle ||
     courier?.tipo_veiculo ||
@@ -209,7 +210,8 @@ export const getCourierVehicleLabel = (courier: any) => {
     return vehicle.replace(/_/g, " ");
   }
 
-  return vehicle.nome || vehicle.name || vehicle.tipo || vehicle.type || "Veículo não informado";
+  return [vehicle.marca, vehicle.modelo, vehicle.placa].filter(Boolean).join(" · ") ||
+    vehicle.nome || vehicle.name || vehicle.tipo || vehicle.type || "Veículo não informado";
 };
 
 export const getApiErrorMessage = (error: any, fallback: string) => {

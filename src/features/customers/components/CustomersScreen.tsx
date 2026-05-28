@@ -187,14 +187,15 @@ export function CustomersScreen() {
 
   const filtered = customers.filter(c => {
     const matchSearch = (c.nome || '').toLowerCase().includes(search.toLowerCase()) || 
-                        (c.email || '').toLowerCase().includes(search.toLowerCase());
-    
-    // Como a API atual não retorna contagem de pedidos, 
-    // os filtros de 'Recorrentes' e 'Novos' funcionarão apenas com base na lógica disponível
+                        (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
+                        (c.telefone || '').toLowerCase().includes(search.toLowerCase());
+
     const ordersCount = getCustomerOrdersCount(c);
+    const createdAt = c.criado_em ? new Date(c.criado_em).getTime() : 0;
+    const isRecentCustomer = createdAt > 0 && Date.now() - createdAt <= 30 * 24 * 60 * 60 * 1000;
     
-    if (filter === 'Recorrentes') return matchSearch && ordersCount > 10;
-    if (filter === 'Novos') return matchSearch && ordersCount <= 3;
+    if (filter === 'Recorrentes') return matchSearch && ordersCount >= 2;
+    if (filter === 'Novos') return matchSearch && (ordersCount <= 1 || isRecentCustomer);
     if (filter === 'Inativos') return matchSearch && c.status === 'inativo';
     
     return matchSearch;
