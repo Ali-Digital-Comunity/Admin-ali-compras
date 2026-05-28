@@ -9,7 +9,9 @@ import { showSystemNotice } from '@/shared/components/SystemNoticeModal';
 const PRIMARY = '#122a4c';
 
 export function PromotionsScreen() {
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [addPromoSearchInput, setAddPromoSearchInput] = useState('');
   const [addPromoSearch, setAddPromoSearch] = useState('');
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,14 +19,20 @@ export function PromotionsScreen() {
   const [showAddPromo, setShowAddPromo] = useState(false);
   const [allStoreProducts, setAllStoreProducts] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+  const [searchingAvailableProducts, setSearchingAvailableProducts] = useState(false);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (searchTerm = search) => {
     try {
       setLoading(true);
-      const response = await api.get('/produtos_loja');
+      const response = await api.get('/produtos_loja', {
+        params: {
+          busca: searchTerm.trim() || undefined,
+          promocao_ativa: true,
+          per_page: 1000,
+        },
+      });
       const data = response.data.data;
       const all = Array.isArray(data) ? data : data?.data || [];
-      setAllStoreProducts(all);
       
       // Filtra apenas produtos que têm preço promocional
       const promoProducts = all.filter((p: any) => p.preco_promocional !== null && p.preco_promocional !== undefined);
@@ -36,9 +44,49 @@ export function PromotionsScreen() {
     }
   };
 
+  const fetchAvailableProducts = async (searchTerm = addPromoSearch) => {
+    try {
+      setSearchingAvailableProducts(true);
+      const response = await api.get('/produtos_loja', {
+        params: {
+          busca: searchTerm.trim() || undefined,
+          ativo: true,
+          per_page: 1000,
+        },
+      });
+      const data = response.data.data;
+      setAllStoreProducts(Array.isArray(data) ? data : data?.data || []);
+    } catch (error) {
+      console.error('Error fetching available products:', error);
+      showSystemNotice('Erro ao buscar produtos da loja');
+    } finally {
+      setSearchingAvailableProducts(false);
+    }
+  };
+
   useEffect(() => {
-    fetchProducts();
+    fetchProducts('');
   }, []);
+
+  useEffect(() => {
+    if (!showAddPromo) return;
+
+    setAddPromoSearch('');
+    setAddPromoSearchInput('');
+    fetchAvailableProducts('');
+  }, [showAddPromo]);
+
+  const handlePromotionSearch = () => {
+    const term = searchInput.trim();
+    setSearch(term);
+    fetchProducts(term);
+  };
+
+  const handleAvailableProductSearch = () => {
+    const term = addPromoSearchInput.trim();
+    setAddPromoSearch(term);
+    fetchAvailableProducts(term);
+  };
 
   const handleUpdatePrice = async (id: string, price: string) => {
     try {
@@ -54,7 +102,8 @@ export function PromotionsScreen() {
         preco_promocional: val 
       });
       
-      fetchProducts(); // Refresh
+      fetchProducts(search); // Refresh
+      if (showAddPromo) fetchAvailableProducts(addPromoSearch);
       setEditingPrice(null);
       setShowAddPromo(false);
     } catch (error) {
@@ -72,37 +121,20 @@ export function PromotionsScreen() {
       await api.patch(`/produtos_loja/${id}`, { 
         preco_promocional: null 
       });
-      fetchProducts();
+      fetchProducts(search);
     } catch (error) {
       console.error('Error removing promotion:', error);
       showSystemNotice('Erro ao remover promoção');
     }
   };
 
-  const filtered = products.filter(p => {
-    const pName = (p.nome || '').toLowerCase();
-    const pBrand = (p.marca || '').toLowerCase();
-    const pSku = (p.codigo_barras || p.sku || '').toLowerCase();
-    const pCategory = (p.categoria?.nome || p.categoria_nome || '').toLowerCase();
-    const sTerm = search.toLowerCase();
-    return pName.includes(sTerm) || pBrand.includes(sTerm) || pSku.includes(sTerm) || pCategory.includes(sTerm);
-  });
+  const filtered = products;
 
   const availableProducts = allStoreProducts.filter((p) => {
     const hasPromotion = p.preco_promocional !== null && p.preco_promocional !== undefined;
     if (hasPromotion) return false;
 
-    const term = addPromoSearch.trim().toLowerCase();
-    if (!term) return true;
-
-    return [
-      p.nome,
-      p.marca,
-      p.codigo_barras,
-      p.sku,
-      p.categoria?.nome,
-      p.categoria_nome,
-    ].some((value) => String(value || '').toLowerCase().includes(term));
+    return true;
   });
 
   const calculateDiscount = (price: number, promoPrice: number) => {
@@ -141,12 +173,23 @@ export function PromotionsScreen() {
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handlePromotionSearch();
+              }}
               placeholder="Buscar nos produtos em promoção..."
               className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
             />
           </div>
+          <button
+            type="button"
+            onClick={handlePromotionSearch}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-bold text-gray-700 hover:bg-gray-50 transition-all"
+          >
+            <Search className="w-4 h-4" />
+            <span>Buscar</span>
+          </button>
           <div className="ml-auto flex items-center gap-4">
              <div className="text-right hidden sm:block">
                 <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total em Promoção</div>
@@ -271,20 +314,38 @@ export function PromotionsScreen() {
               </div>
 
               <div className="p-4 bg-gray-50/50 border-b border-gray-100">
-                 <div className="relative">
+                 <div className="flex gap-2">
+                  <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       autoFocus
-                      placeholder="Buscar por nome ou marca..."
-                      value={addPromoSearch}
+                      placeholder="Buscar em todos os produtos..."
+                      value={addPromoSearchInput}
                       className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
-                      onChange={e => setAddPromoSearch(e.target.value)}
+                      onChange={e => setAddPromoSearchInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleAvailableProductSearch();
+                      }}
                     />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAvailableProductSearch}
+                    disabled={searchingAvailableProducts}
+                    className="px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-60"
+                    style={{ backgroundColor: PRIMARY }}
+                  >
+                    Buscar
+                  </button>
                  </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-                 {availableProducts.map(p => (
+                 {searchingAvailableProducts ? (
+                   <div className="py-8 text-center text-sm text-gray-500">
+                     Buscando produtos...
+                   </div>
+                 ) : availableProducts.map(p => (
                     <button
                        key={p.id}
                        onClick={() => setEditingPrice({ 
@@ -315,9 +376,11 @@ export function PromotionsScreen() {
                        </div>
                     </button>
                  ))}
-                 {availableProducts.length === 0 && (
+                 {!searchingAvailableProducts && availableProducts.length === 0 && (
                    <div className="py-8 text-center text-sm text-gray-500">
-                     Nenhum produto disponível encontrado.
+                     {addPromoSearch
+                       ? `Nenhum produto disponível encontrado para "${addPromoSearch}".`
+                       : 'Nenhum produto disponível encontrado.'}
                    </div>
                  )}
               </div>

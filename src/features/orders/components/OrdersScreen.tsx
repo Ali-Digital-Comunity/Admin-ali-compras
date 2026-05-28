@@ -1638,6 +1638,12 @@ export function OrdersScreen() {
                   ? "Entrega"
                   : "Retirada"}
               </div>
+              {selected.agendado_para && (
+                <div className="text-xs text-amber-700 mt-1">
+                  Entrega agendada para{" "}
+                  {formatBrasiliaTime(selected.agendado_para)}
+                </div>
+              )}
             </div>
             <button
               onClick={() => handlePrintComanda(selectedForPrint)}
@@ -1666,7 +1672,7 @@ export function OrdersScreen() {
           <div className="p-5 space-y-5">
             {/* Timeline */}
             <div className="bg-gray-50 rounded-xl p-4">
-              <div className="flex items-center gap-1 overflow-x-auto pb-1">
+              <div className="flex items-start gap-1 overflow-x-auto pb-1">
                 {(String(selected.tipo_pedido || selected.type || "").toLowerCase() === "retirada"
                   ? statusFlow.filter((status) => status !== "Saiu para Entrega")
                   : statusFlow
@@ -1680,9 +1686,9 @@ export function OrdersScreen() {
                   return (
                     <div
                       key={s}
-                      className="flex items-center gap-1 flex-shrink-0"
+                      className="flex items-start gap-1 flex-shrink-0"
                     >
-                      <div className="flex flex-col items-center">
+                      <div className="flex w-14 flex-col items-center">
                         <div
                           className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
                           style={{
@@ -1695,13 +1701,13 @@ export function OrdersScreen() {
                             <div className="w-2 h-2 rounded-full bg-gray-400" />
                           )}
                         </div>
-                        <span className="text-[9px] text-gray-500 mt-1 text-center max-w-12 leading-tight">
+                        <span className="mt-1 min-h-[22px] max-w-14 text-center text-[9px] leading-tight text-gray-500">
                           {s}
                         </span>
                       </div>
                       {i < visibleStatusFlow.length - 1 && (
                         <div
-                          className="w-6 h-0.5 mb-3 flex-shrink-0"
+                          className="mt-3 h-0.5 w-6 flex-shrink-0"
                           style={{
                             backgroundColor: i < curIdx ? PRIMARY : "#e5e7eb",
                           }}

@@ -727,7 +727,7 @@ export function SettingsScreen() {
               </div>
 
               <p className="text-xs text-gray-500 italic">
-                * Os clientes não poderão realizar pedidos fora destes horários.
+                * Os clientes podem realizar pedidos em qualquer horário. Pedidos feitos fora do horário de funcionamento serão entregues no próximo dia em que o mercado estiver aberto.
               </p>
             </div>
           )}

@@ -64,6 +64,7 @@ export const printComanda = (
     : 0;
   const total = order.total ?? order.valor_total ?? 0;
   const orderDate = order.realizado_em || order.criado_em || order.created_at || new Date();
+  const scheduledDate = order.agendado_para;
   const orderNumber = escapeHtml(order.numero_pedido || order.id);
   const isDelivery = isDeliveryOrder(order);
   const storeHeader = renderStoreHeader(store);
@@ -95,6 +96,7 @@ export const printComanda = (
     <p class="bold large">COMANDA DE PEDIDO</p>
     <p>Pedido: <span class="bold">${orderNumber}</span></p>
     <p>Data: ${escapeHtml(formatBrasiliaDate(orderDate, { dateStyle: "short", timeStyle: "medium" }))}</p>
+    ${scheduledDate ? `<p>Entrega agendada: <span class="bold">${escapeHtml(formatBrasiliaDate(scheduledDate, { dateStyle: "short", timeStyle: "short" }))}</span></p>` : ""}
     <span class="tag">${escapeHtml((order.tipo_pedido || order.type || "").toUpperCase())}</span>
   </div>
   <div class="divider"></div>

@@ -105,13 +105,23 @@ export function PaymentsScreen() {
 
   const getApiErrorMessage = (error: any, fallback: string) => {
     const payload = error?.response?.data;
-    return (
+    const message = (
       payload?.message ||
       payload?.error?.message ||
       payload?.error ||
       error?.message ||
       fallback
     );
+
+    if (/collector.*hasn'?t enough available money/i.test(message)) {
+      return 'O recebedor não possui saldo disponível suficiente para concluir o reembolso.';
+    }
+
+    if (/refund failed/i.test(message)) {
+      return 'Não foi possível realizar o reembolso no Mercado Pago. Verifique o saldo dos recebedores.';
+    }
+
+    return message;
   };
 
   const refundPayment = async (payment: any) => {

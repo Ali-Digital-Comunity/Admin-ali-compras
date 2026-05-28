@@ -224,7 +224,22 @@ export const getApiErrorMessage = (error: any, fallback: string) => {
   ];
 
   const message = candidates.find((value) => typeof value === "string" && value.trim());
-  return message || fallback;
+  if (!message) return fallback;
+
+  if (/no active delivery area found for order/i.test(message)) {
+    const orderLabel = message.match(/order\s+(.+)$/i)?.[1];
+    return `Nenhuma área de entrega ativa encontrada para o pedido${orderLabel ? ` ${orderLabel}` : ""}.`;
+  }
+
+  if (/the following orders are already part of an active route/i.test(message)) {
+    return "Um ou mais pedidos selecionados já fazem parte de uma entrega ativa.";
+  }
+
+  if (/the following orders already have a delivery registered/i.test(message)) {
+    return "Um ou mais pedidos selecionados já possuem entrega registrada.";
+  }
+
+  return message;
 };
 
 export const hexToRgba = (hex: string, alpha: number) => {
