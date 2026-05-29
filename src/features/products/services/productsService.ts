@@ -2,8 +2,9 @@ import api from "@/shared/lib/api";
 import type { ProductStorePayload } from "../types/product";
 
 const STORE_PRODUCTS_CACHE_PREFIX = "admin-store-products:v1:";
-const ACTIVE_CATEGORIES_CACHE_KEY = "admin-active-categories:v1";
+const ACTIVE_CATEGORIES_CACHE_PREFIX = "admin-active-categories:v2:";
 const CACHE_MAX_AGE = 5 * 60 * 1000;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
 const toList = (payload: any) => {
   const data = payload?.data;
@@ -68,6 +69,7 @@ const clearCacheByPrefix = (prefix: string) => {
 
 const invalidateStoreProductsCache = () => {
   clearCacheByPrefix(STORE_PRODUCTS_CACHE_PREFIX);
+  clearCacheByPrefix(ACTIVE_CATEGORIES_CACHE_PREFIX);
 };
 
 export const productsService = {
@@ -159,10 +161,16 @@ export const productsService = {
   },
 
   async getActiveCategories() {
-    const cached = getSessionItem<any[]>(ACTIVE_CATEGORIES_CACHE_KEY);
+    const lojaId = getStoreId();
+    const cacheKey = `${ACTIVE_CATEGORIES_CACHE_PREFIX}${lojaId}`;
+    const cached = getSessionItem<any[]>(cacheKey);
     if (cached) return cached;
 
-    const firstResponse = await api.get("/categorias", {
+    const endpoint = UUID_REGEX.test(lojaId)
+      ? `/lojas/${encodeURIComponent(lojaId)}/categorias`
+      : "/categorias";
+
+    const firstResponse = await api.get(endpoint, {
       params: { ativa: true, page: 1, per_page: 100 },
     });
     const firstData = firstResponse.data?.data;
@@ -170,7 +178,7 @@ export const productsService = {
     const remainingResponses = totalPages > 1
       ? await Promise.all(
           Array.from({ length: totalPages - 1 }, (_, index) =>
-            api.get("/categorias", {
+            api.get(endpoint, {
               params: { ativa: true, page: index + 2, per_page: 100 },
             }),
           ),
@@ -181,7 +189,7 @@ export const productsService = {
       ...remainingResponses.flatMap((response) => toList(response.data)),
     ];
 
-    setSessionItem(ACTIVE_CATEGORIES_CACHE_KEY, categories);
+    setSessionItem(cacheKey, categories);
     return categories;
   },
 
