@@ -13,7 +13,9 @@ import {
   User,
   Package,
   ArrowLeft,
+  CircleX,
   CheckCircle2,
+  MessageCircle,
   Printer,
   List,
   Archive,
@@ -55,6 +57,18 @@ import {
 import { DeliveryAssignmentModal } from '@/features/orders/components/DeliveryAssignmentModal';
 import { OrderItemsChecklistModal } from '@/features/orders/components/OrderItemsChecklistModal';
 import { showSystemNotice } from '@/shared/components/SystemNoticeModal';
+
+const getWhatsappPhone = (phone: any) => {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  return digits.startsWith("55") ? digits : `55${digits}`;
+};
+
+const buildWhatsappUrl = (phone: any, message: string) => {
+  const normalizedPhone = getWhatsappPhone(phone);
+  if (!normalizedPhone) return null;
+  return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
+};
 
 export function OrdersScreen() {
   const [searchParams] = useSearchParams();
@@ -141,7 +155,11 @@ export function OrdersScreen() {
           : {};
 
       setPrimaryColor(config.cor_primaria || PRIMARY);
-      setStorePrintData({ ...store, slogan: config.slogan });
+      setStorePrintData({
+        ...store,
+        slogan: config.slogan,
+        whatsapp_suporte: config.whatsapp_suporte,
+      });
     });
 
     return () => {
@@ -690,6 +708,12 @@ export function OrdersScreen() {
   const selectedIsDelivery = String(selected?.tipo_pedido || selected?.type || "").toLowerCase() === "entrega";
   const selectedStatusLabel = selected ? getStatusLabel(selected.status) : "";
   const adminCannotDispatchDelivery = selectedIsDelivery && selectedStatusLabel === "Pronto";
+  const selectedMarketWhatsappUrl = selected
+    ? buildWhatsappUrl(
+        storePrintData?.whatsapp_suporte || storePrintData?.telefone,
+        `Olá! Preciso de ajuda com o pedido #${selected.numero_pedido || String(selected.id || "").slice(0, 8)}, que consta como não entregue.`,
+      )
+    : null;
   const listGroups =
     viewMode === "arquivados"
       ? [
@@ -1698,24 +1722,22 @@ export function OrdersScreen() {
             {/* Timeline */}
             <div className="bg-gray-50 rounded-xl p-4">
               <div className="flex items-start gap-1 overflow-x-auto pb-1">
-                {(String(selected.tipo_pedido || selected.type || "").toLowerCase() === "retirada"
-                  ? statusFlow.filter((status) => status !== "Saiu para Entrega")
-                  : statusFlow
-                ).map((s, i, visibleStatusFlow) => {
-                  const currentDisplay = getStatusLabel(selected.status);
+                {(() => {
+                  const baseFlow = String(selected.tipo_pedido || selected.type || "").toLowerCase() === "retirada"
+                    ? statusFlow.filter((status) => status !== "Saiu para Entrega")
+                    : statusFlow;
+
+                  return selected.status === "nao_entregue"
+                    ? baseFlow.map((status) => status === "Entregue" ? "Não entregue" : status)
+                    : baseFlow;
+                })().map((s, i, visibleStatusFlow) => {
+                  const isFailedStep = selected.status === "nao_entregue" && s === "Não entregue";
+                  const currentDisplay = isFailedStep ? "Não entregue" : getStatusLabel(selected.status);
                   const currentFlowIndex = visibleStatusFlow.indexOf(currentDisplay);
-                  const failedFlowIndex = Math.max(
-                    visibleStatusFlow.indexOf("Saiu para Entrega"),
-                    visibleStatusFlow.indexOf("Pronto"),
-                    0,
-                  );
-                  const curIdx =
-                    selected.status === "nao_entregue"
-                      ? failedFlowIndex
-                      : currentFlowIndex >= 0
-                        ? currentFlowIndex
-                        : 0;
-                  const done = i <= curIdx;
+                  const curIdx = currentFlowIndex >= 0 ? currentFlowIndex : 0;
+                  const done = isFailedStep ? false : i <= curIdx;
+                  const connectorDone = i < curIdx;
+                  const connectorFailed = selected.status === "nao_entregue" && visibleStatusFlow[i + 1] === "Não entregue";
                   return (
                     <div
                       key={s}
@@ -1725,16 +1747,18 @@ export function OrdersScreen() {
                         <div
                           className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
                           style={{
-                            backgroundColor: done ? PRIMARY : "#e5e7eb",
+                            backgroundColor: isFailedStep ? "#dc2626" : done ? PRIMARY : "#e5e7eb",
                           }}
                         >
-                          {done ? (
+                          {isFailedStep ? (
+                            <CircleX className="w-3.5 h-3.5 text-white" />
+                          ) : done ? (
                             <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                           ) : (
                             <div className="w-2 h-2 rounded-full bg-gray-400" />
                           )}
                         </div>
-                        <span className="mt-1 min-h-[22px] max-w-14 text-center text-[9px] leading-tight text-gray-500">
+                        <span className={`mt-1 min-h-[22px] max-w-14 text-center text-[9px] leading-tight ${isFailedStep ? "font-semibold text-red-700" : "text-gray-500"}`}>
                           {s}
                         </span>
                       </div>
@@ -1742,7 +1766,7 @@ export function OrdersScreen() {
                         <div
                           className="mt-3 h-0.5 w-6 flex-shrink-0"
                           style={{
-                            backgroundColor: i < curIdx ? PRIMARY : "#e5e7eb",
+                            backgroundColor: connectorDone ? (connectorFailed ? "#dc2626" : PRIMARY) : "#e5e7eb",
                           }}
                         />
                       )}
@@ -1761,6 +1785,24 @@ export function OrdersScreen() {
                   Problema relatado pelo entregador
                   {getDeliveryFailureReason(selected) ? `: ${getDeliveryFailureReason(selected)}` : "."}
                 </p>
+                <p className="mt-2 text-sm font-medium text-red-800">
+                  Oriente o cliente a entrar em contato com o WhatsApp do mercado para combinar os próximos passos.
+                </p>
+                {selectedMarketWhatsappUrl ? (
+                  <a
+                    href={selectedMarketWhatsappUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Abrir WhatsApp do mercado
+                  </a>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-white/70 px-3 py-2 text-sm font-medium text-red-800">
+                    WhatsApp do mercado não configurado.
+                  </div>
+                )}
               </div>
             )}
 
