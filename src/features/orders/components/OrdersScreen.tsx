@@ -52,8 +52,10 @@ import {
   getOrderPaymentMethod,
   getOrderPaymentStatus,
   getOrderStreetAddress,
+  getPreferredOrderPayment,
   hexToRgba,
   isDeliveryOrder,
+  isOrderPaid,
 } from '@/features/orders/utils/orderUtils';
 import { DeliveryAssignmentModal } from '@/features/orders/components/DeliveryAssignmentModal';
 import { OrderItemsChecklistModal } from '@/features/orders/components/OrderItemsChecklistModal';
@@ -434,7 +436,9 @@ export function OrdersScreen() {
     try {
       const items = await loadOrderItems(order.id);
       const orderPayment =
-        selected?.id === order.id ? selectedPayments[0] || order.pagamento : order.pagamento;
+        selected?.id === order.id
+          ? getPreferredOrderPayment(order, selectedPayments)
+          : getPreferredOrderPayment(order);
       printComanda(
         { ...order, pagamento: orderPayment },
         items,
@@ -489,6 +493,11 @@ export function OrdersScreen() {
 
   const handleAssignCourier = async (entregadorId: string) => {
     if (!selected) return;
+
+    if (!isOrderPaid(selected, selectedPayments)) {
+      showSystemNotice("O pedido só pode avançar após a aprovação do pagamento.");
+      return;
+    }
 
     try {
       setAssigningCourier(true);
@@ -620,6 +629,11 @@ export function OrdersScreen() {
 
     if (idx >= 0 && idx < backendStatusFlow.length - 1) {
       const nextStatus = backendStatusFlow[idx + 1];
+
+      if (!isOrderPaid(order, selected?.id === id ? selectedPayments : [])) {
+        showSystemNotice("O pedido só pode avançar após a aprovação do pagamento.");
+        return;
+      }
 
       if (isDeliveryOrder && nextStatus === "entregue") {
         showSystemNotice(
@@ -812,7 +826,8 @@ export function OrdersScreen() {
       : newOrdersCount === 1
         ? "1 novo pedido"
         : `${newOrdersCount} novos pedidos`;
-  const selectedPayment = selectedPayments[0] || selected?.pagamento || null;
+  const selectedPayment = getPreferredOrderPayment(selected, selectedPayments);
+  const selectedIsPaid = isOrderPaid(selected, selectedPayments);
   const selectedForPrint = selected
     ? { ...selected, pagamento: selectedPayment }
     : selected;
@@ -941,6 +956,7 @@ export function OrdersScreen() {
     );
     const activeOrders = uniqueOrders.filter(
       (order) =>
+        isOrderPaid(order) &&
         !assignedOrderIds.has(order.id) &&
         !["entregue", "nao_entregue", "cancelado", "Entregue", "Não entregue", "Cancelado"].includes(
           order.status,
@@ -948,7 +964,7 @@ export function OrdersScreen() {
     );
     if (activeOrders.length === 0) {
       showSystemNotice(
-        "Nenhum pedido não atribuído disponível para adicionar.",
+        "Nenhum pedido pago e não atribuído disponível para adicionar.",
       );
       return;
     }
@@ -1340,6 +1356,7 @@ export function OrdersScreen() {
               const isEntrega = isDeliveryOrder(order);
               const canSelectForDelivery =
                 isEntrega &&
+                isOrderPaid(order) &&
                 !assignedOrderIds.has(order.id) &&
                 !["entregue", "nao_entregue", "cancelado"].includes(order.status);
               const isSelectedForDelivery = selectedOrderIds.includes(order.id);
@@ -1402,6 +1419,11 @@ export function OrdersScreen() {
                           {viewMode === "arquivados" && (
                             <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
                               Arquivado
+                            </span>
+                          )}
+                          {!isOrderPaid(order) && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                              Pagamento pendente
                             </span>
                           )}
                           {isEntrega && assignedDelivery?.entregador_id && (
@@ -1532,6 +1554,7 @@ export function OrdersScreen() {
               const isExpanded = expandedBairros[bairro] !== false; // expanded by default
               const activeOrders = group.orders.filter(
                 (o) =>
+                  isOrderPaid(o) &&
                   !["entregue", "nao_entregue", "cancelado", "Entregue", "Não entregue", "Cancelado"].includes(
                     o.status,
                   ),
@@ -1655,6 +1678,7 @@ export function OrdersScreen() {
                             text: "#666",
                           };
                         const canSelectForDelivery =
+                          isOrderPaid(order) &&
                           !assignedOrderIds.has(order.id) &&
                           !["entregue", "nao_entregue", "cancelado"].includes(order.status);
                         const isSelectedForDelivery = selectedOrderIds.includes(
@@ -1725,6 +1749,11 @@ export function OrdersScreen() {
                                 >
                                   {statusDisplay}
                                 </span>
+                                {!isOrderPaid(order) && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                                    Pagamento pendente
+                                  </span>
+                                )}
                               </div>
                               <div className="text-xs text-gray-600 mt-0.5 truncate">
                                 {order.cliente?.nome || order.customer}
@@ -2138,7 +2167,12 @@ export function OrdersScreen() {
               </div>
               {selectedPaymentStatus !== "Não informado" && (
                 <div className={`mt-1 text-xs font-medium ${selectedPaymentStatusClass}`}>
-                  ✓ {selectedPaymentStatus}
+                  {selectedIsPaid ? "✓ " : ""}{selectedPaymentStatus}
+                </div>
+              )}
+              {!selectedIsPaid && (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Pagamento pendente
                 </div>
               )}
             </div>
@@ -2199,6 +2233,7 @@ export function OrdersScreen() {
               {getStatusLabel(selected.status) !== "Entregue" &&
                 getStatusLabel(selected.status) !== "Cancelado" &&
                 getStatusLabel(selected.status) !== "Não entregue" &&
+                selectedIsPaid &&
                 !adminCannotDispatchDelivery &&
                 !adminCannotConfirmDelivery && (
                   <button
@@ -2235,6 +2270,14 @@ export function OrdersScreen() {
                       </>
                     )}
                   </button>
+                )}
+              {!selectedIsPaid &&
+                getStatusLabel(selected.status) !== "Entregue" &&
+                getStatusLabel(selected.status) !== "Cancelado" &&
+                getStatusLabel(selected.status) !== "Não entregue" && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    O pedido só pode avançar após a aprovação do pagamento.
+                  </div>
                 )}
               {adminCannotDispatchDelivery && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

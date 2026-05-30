@@ -166,6 +166,20 @@ export const formatPaymentStatus = (value: unknown) => {
   return labels[status] || status.replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase());
 };
 
+export const isApprovedPayment = (payment: any) =>
+  cleanText(payment?.status).toLowerCase() === "aprovado";
+
+export const getPreferredOrderPayment = (order: any, payments: any[] = []) =>
+  payments.find(isApprovedPayment) ||
+  payments[0] ||
+  order?.pagamento ||
+  null;
+
+export const isOrderPaid = (order: any, payments: any[] = []) =>
+  payments.some(isApprovedPayment) ||
+  isApprovedPayment(order?.pagamento) ||
+  cleanText(order?.payment_status).toLowerCase() === "aprovado";
+
 export const getOrderPaymentMethod = (order: any, payment?: any) =>
   formatPaymentMethod(
     firstText(
