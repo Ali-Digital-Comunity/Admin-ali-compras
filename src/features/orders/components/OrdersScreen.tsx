@@ -81,25 +81,6 @@ const getOrderCustomerPhone = (order: any) =>
   order?.phone ||
   "";
 
-const getOrderCreatedAt = (order: any) =>
-  order?.criado_em || order?.created_at || order?.realizado_em || null;
-
-const getLatestOrderCreatedAt = (orders: any[]) => {
-  const timestamps = orders
-    .map((order) => {
-      const value = getOrderCreatedAt(order);
-      const time = value ? new Date(value).getTime() : Number.NaN;
-      return Number.isFinite(time) ? time : null;
-    })
-    .filter((time): time is number => time !== null);
-
-  if (timestamps.length === 0) {
-    return new Date().toISOString();
-  }
-
-  return new Date(Math.max(...timestamps)).toISOString();
-};
-
 export function OrdersScreen() {
   const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState<any[]>([]);
@@ -128,6 +109,7 @@ export function OrdersScreen() {
   const [unassigningDeliveryId, setUnassigningDeliveryId] = useState("");
   const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState("");
   const [cancellingOrderId, setCancellingOrderId] = useState("");
+  const [archivingOrderId, setArchivingOrderId] = useState("");
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -146,6 +128,8 @@ export function OrdersScreen() {
   const [newOrdersCount, setNewOrdersCount] = useState(0);
   const [lastOrdersLoadedAt, setLastOrdersLoadedAt] = useState<string | null>(null);
   const [checkingNewOrders, setCheckingNewOrders] = useState(false);
+  const [archivedStartDate, setArchivedStartDate] = useState("");
+  const [archivedEndDate, setArchivedEndDate] = useState("");
   const PER_PAGE = 20;
 
   const user = (() => {
@@ -162,7 +146,7 @@ export function OrdersScreen() {
     setPage(1);
     fetchOrders(1, true);
     fetchAuxiliaryData();
-  }, [statusFilter, typeFilter, viewMode]);
+  }, [statusFilter, typeFilter, viewMode, archivedStartDate, archivedEndDate]);
 
   useEffect(() => {
     if (!user?.loja_id) {
@@ -248,15 +232,16 @@ export function OrdersScreen() {
     page: pageNum,
     per_page: PER_PAGE,
     arquivado: viewMode === "arquivados" ? "true" : "false",
-    status:
-      viewMode === "arquivados"
-        ? undefined
-        : frontendToBackendStatus[statusFilter],
+    status: frontendToBackendStatus[statusFilter],
     tipo_pedido:
       viewMode === "arquivados" || typeFilter === "Todos"
         ? undefined
         : typeFilter.toLowerCase(),
     busca: search || undefined,
+    realizado_em_inicial:
+      viewMode === "arquivados" ? archivedStartDate || undefined : undefined,
+    realizado_em_final:
+      viewMode === "arquivados" ? archivedEndDate || undefined : undefined,
   });
 
   const getNewOrdersQueryParams = () => ({
@@ -289,10 +274,22 @@ export function OrdersScreen() {
       const displayData = Array.isArray(rawData) && more ? data.slice(0, PER_PAGE) : data;
 
       setHasMore(more);
-      setOrders((prev) => (reset ? displayData : [...prev, ...displayData]));
+      setOrders((prev) =>
+        reset
+          ? displayData
+          : [
+              ...prev,
+              ...displayData.filter(
+                (order: any) =>
+                  !prev.some((currentOrder) => currentOrder.id === order.id),
+              ),
+            ],
+      );
       setPage(pageNum);
       if (reset) {
-        setLastOrdersLoadedAt(getLatestOrderCreatedAt(displayData));
+        setLastOrdersLoadedAt(
+          rawData?.latest_created_at || new Date().toISOString(),
+        );
         setNewOrdersCount(0);
       }
     } catch (error) {
@@ -706,6 +703,39 @@ export function OrdersScreen() {
     }
   };
 
+  const toggleArchivedOrder = async (order: any) => {
+    const shouldRestore = Boolean(order.arquivado);
+
+    try {
+      setArchivingOrderId(order.id);
+      await api.patch(
+        `/pedidos/${order.id}/${shouldRestore ? "restaurar" : "arquivar"}`,
+      );
+      setOrders((prev) => prev.filter((item) => item.id !== order.id));
+      if (selected?.id === order.id) {
+        setSelected(null);
+      }
+
+      if (hasMore) {
+        await fetchOrders(page, false, { silent: true });
+      }
+    } catch (error) {
+      console.error("Error updating order archive status", error);
+      showSystemNotice(
+        getApiErrorMessage(
+          error,
+          shouldRestore
+            ? "Erro ao restaurar pedido. Tente novamente."
+            : "Erro ao arquivar pedido. Tente novamente.",
+        ),
+      );
+    } finally {
+      setArchivingOrderId((currentId) =>
+        currentId === order.id ? "" : currentId,
+      );
+    }
+  };
+
   const getStatusLabel = (status: string) => statusLabels[status] || status;
   const getDeliveryFailureReason = (order: any) =>
     (currentDelivery?.pedido_id === order?.id ? currentDelivery?.observacoes : "") ||
@@ -757,7 +787,12 @@ export function OrdersScreen() {
   const selectedDeliveryCount = selectedDeliveryOrders.length;
   const activeFiltersCount =
     viewMode === "arquivados"
-      ? [search].filter(Boolean).length
+      ? [
+          search,
+          statusFilter !== "Todos",
+          archivedStartDate,
+          archivedEndDate,
+        ].filter(Boolean).length
       : [
           search,
           statusFilter !== "Todos",
@@ -778,7 +813,9 @@ export function OrdersScreen() {
   const selectedPaymentStatus = getOrderPaymentStatus(selected, selectedPayment);
   const selectedStatusUpdating = updatingStatusOrderId === selected?.id;
   const selectedCancelling = cancellingOrderId === selected?.id;
-  const selectedOrderUpdating = selectedStatusUpdating || selectedCancelling;
+  const selectedArchiving = archivingOrderId === selected?.id;
+  const selectedOrderUpdating =
+    selectedStatusUpdating || selectedCancelling || selectedArchiving;
   const selectedPaymentStatusClass = ["Aprovado", "Confirmado"].includes(
     selectedPaymentStatus,
   )
@@ -808,7 +845,7 @@ export function OrdersScreen() {
           {
             key: "arquivados",
             title: "Arquivados",
-            description: "Entregues com pagamento aprovado",
+            description: "Pedidos arquivados manualmente",
             orders: filtered,
           },
         ]
@@ -1076,8 +1113,11 @@ export function OrdersScreen() {
                   <button
                     onClick={() => {
                       setSearch("");
-                      if (viewMode !== "arquivados") {
-                        setStatusFilter("Todos");
+                      setStatusFilter("Todos");
+                      if (viewMode === "arquivados") {
+                        setArchivedStartDate("");
+                        setArchivedEndDate("");
+                      } else {
                         setTypeFilter(viewMode === "bairros" ? "Entrega" : "Todos");
                         setBairroFilter("Todos");
                       }
@@ -1089,7 +1129,7 @@ export function OrdersScreen() {
                 )}
               </div>
 
-              <div className={`grid grid-cols-1 gap-3 ${viewMode === "arquivados" ? "" : "lg:grid-cols-3"}`}>
+              <div className={`grid grid-cols-1 gap-3 ${viewMode === "arquivados" ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
                 <div className="relative">
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
                     Busca
@@ -1103,25 +1143,24 @@ export function OrdersScreen() {
                   />
                 </div>
 
-                {viewMode !== "arquivados" && (
-                  <>
-                    <div>
-                      <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
-                        Status
-                      </label>
-                      <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
-                      >
-                        {allStatuses.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
+                  >
+                    {allStatuses.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
+                {viewMode !== "arquivados" && (
                     <div>
                       <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
                         Tipo
@@ -1140,6 +1179,34 @@ export function OrdersScreen() {
                           </option>
                         ))}
                       </select>
+                    </div>
+                )}
+
+                {viewMode === "arquivados" && (
+                  <>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
+                        Data inicial
+                      </label>
+                      <input
+                        type="date"
+                        value={archivedStartDate}
+                        max={archivedEndDate || undefined}
+                        onChange={(e) => setArchivedStartDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
+                        Data final
+                      </label>
+                      <input
+                        type="date"
+                        value={archivedEndDate}
+                        min={archivedStartDate || undefined}
+                        onChange={(e) => setArchivedEndDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
+                      />
                     </div>
                   </>
                 )}
@@ -1325,8 +1392,8 @@ export function OrdersScreen() {
                             {isEntrega ? "Entrega" : "Retirada"}
                           </span>
                           {viewMode === "arquivados" && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-green-50 text-green-700">
-                              Pagamento aprovado
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                              Arquivado
                             </span>
                           )}
                           {isEntrega && assignedDelivery?.entregador_id && (
@@ -2176,6 +2243,28 @@ export function OrdersScreen() {
                 className="w-full py-2.5 rounded-lg text-gray-700 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
               >
                 <Package className="w-4 h-4" /> Ver produtos
+              </button>
+              <button
+                onClick={() => toggleArchivedOrder(selected)}
+                disabled={selectedOrderUpdating}
+                aria-busy={selectedArchiving}
+                className="w-full py-2.5 rounded-lg text-gray-700 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors disabled:cursor-wait disabled:opacity-70 flex items-center justify-center gap-2"
+              >
+                {selectedArchiving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Atualizando...
+                  </>
+                ) : (
+                  <>
+                    {selected.arquivado ? (
+                      <RefreshCw className="w-4 h-4" />
+                    ) : (
+                      <Archive className="w-4 h-4" />
+                    )}
+                    {selected.arquivado ? "Restaurar pedido" : "Arquivar pedido"}
+                  </>
+                )}
               </button>
               {getStatusLabel(selected.status) !== "Cancelado" &&
                 getStatusLabel(selected.status) !== "Entregue" && (
