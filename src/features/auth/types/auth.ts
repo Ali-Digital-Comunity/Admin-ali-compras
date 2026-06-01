@@ -6,7 +6,21 @@ export type LoginCredentials = {
   userType: LoginUserType;
 };
 
-export type AuthUser = Record<string, any>;
+export type AuthUser = {
+  id: string;
+  loja_id?: string | null;
+  nome?: string;
+  email?: string;
+  perfil?: string;
+  role?: string;
+  status?: string;
+  entregador_id?: string | null;
+  cliente_id?: string | null;
+  cpf?: string | null;
+  cpf_na_nota_padrao?: boolean;
+  user_type?: string;
+  permissions?: string[];
+};
 
 export type LoginResponse = {
   access_token: string;
