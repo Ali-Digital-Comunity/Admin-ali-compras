@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { 
-  Plus, Search, Filter, Edit2, Power, Eye, X, Package, 
-  ChevronDown, ChevronLeft, ChevronRight, Grid2X2, List, Trash2, CheckCircle2, AlertCircle, Tag, Star, Zap, FileUp
+  AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Copy, Edit2,
+  Eye, FileUp, Filter, Grid2X2, List, Package, Plus, Power, Search, Star, Tag,
+  Trash2, UtensilsCrossed, X, Zap
 } from 'lucide-react';
 import { showSystemNotice } from '@/shared/components/SystemNoticeModal';
 import { useProducts } from '../hooks/useProducts';
 import { productsService } from '../services/productsService';
 import { parseMoney, parseQuantity, parseStock } from '../utils/formatProductData';
+import { ConfigurableProductEditor } from './ConfigurableProductEditor';
 
 const PRIMARY = '#122a4c';
 
@@ -728,6 +730,7 @@ export function ProductsScreen() {
   const navigate = useNavigate();
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [configurableEditor, setConfigurableEditor] = useState<{ product?: any; duplicate?: boolean } | null>(null);
   const [departmentId, setDepartmentId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [subcategoryId, setSubcategoryId] = useState('');
@@ -806,6 +809,16 @@ export function ProductsScreen() {
         />
       )}
 
+      {configurableEditor && (
+        <ConfigurableProductEditor
+          product={configurableEditor.product}
+          duplicate={configurableEditor.duplicate}
+          categories={dbCategories}
+          onClose={() => setConfigurableEditor(null)}
+          onSuccess={() => fetchProducts({ forceRefresh: true })}
+        />
+      )}
+
       {/* Toolbar */}
       <div className="bg-white border-b border-gray-200 px-4 py-3">
         <div className="flex items-center gap-2 mb-3">
@@ -824,7 +837,14 @@ export function ProductsScreen() {
             style={{ backgroundColor: PRIMARY }}
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Novo Produto</span>
+            <span className="hidden sm:inline">Vincular produto global</span>
+          </button>
+          <button
+            onClick={() => setConfigurableEditor({})}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-medium transition-all hover:bg-gray-50 active:scale-95 flex-shrink-0"
+          >
+            <UtensilsCrossed className="w-4 h-4" />
+            <span className="hidden sm:inline">Criar item do cardápio</span>
           </button>
           <button
             onClick={() => navigate('/products/import')}
@@ -963,6 +983,12 @@ export function ProductsScreen() {
                           <div className="font-medium text-gray-800 text-sm">{product.nome}</div>
                           <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-400">
                             <span>{product.marca || 'Sem marca'}</span>
+                            <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">
+                              {product.escopo_catalogo === 'loja' ? 'Criado pela loja' : 'Catálogo global'}
+                            </span>
+                            {product.modo_compra === 'configuravel' && (
+                              <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Configurável</span>
+                            )}
                             {product.consumo_imediato && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">
                                 <Zap className="w-3 h-3" />
@@ -1010,12 +1036,23 @@ export function ProductsScreen() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
-                          onClick={() => setEditingProduct(product)}
+                          onClick={() => product.modo_compra === 'configuravel'
+                            ? setConfigurableEditor({ product })
+                            : setEditingProduct(product)}
                           className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
                           title="Editar"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
+                        {product.modo_compra === 'configuravel' && (
+                          <button
+                            onClick={() => setConfigurableEditor({ product, duplicate: true })}
+                            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                            title="Duplicar item configurável"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => toggleStatus(product.id, isActive)}
                           className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"

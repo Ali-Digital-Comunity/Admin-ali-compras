@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Package, X } from "lucide-react";
 import {
   getOrderItemChecklistId,
+  getOrderItemConfigurationLines,
   getOrderItemName,
   getOrderItemQuantity,
 } from "@/features/orders/utils/orderUtils";
@@ -152,6 +153,9 @@ export function OrderItemsChecklistModal({
                       >
                         {getOrderItemQuantity(item)}x {getOrderItemName(item)}
                       </div>
+                      {getOrderItemConfigurationLines(item).map((line) => (
+                        <p key={line} className="mt-0.5 text-xs text-gray-500">{line}</p>
+                      ))}
                       {(item.observacoes || item.obs) && (
                         <p className="mt-0.5 text-xs text-gray-500">
                           Obs.: {item.observacoes || item.obs}

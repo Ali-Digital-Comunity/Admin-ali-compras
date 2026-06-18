@@ -1,5 +1,5 @@
 import api from "@/shared/lib/api";
-import type { ProductStorePayload } from "../types/product";
+import type { ProductConfiguration, ProductStorePayload } from "../types/product";
 
 const STORE_PRODUCTS_CACHE_PREFIX = "admin-store-products:v1:";
 const ACTIVE_CATEGORIES_CACHE_PREFIX = "admin-active-categories:v2:";
@@ -227,6 +227,25 @@ export const productsService = {
     return response.data.data;
   },
 
+  async createLocalProduct(payload: Record<string, any>) {
+    const response = await api.post("/produtos_loja/locais", payload);
+    invalidateStoreProductsCache();
+    return response.data.data;
+  },
+
+  async getProductConfiguration(productStoreId: string): Promise<any> {
+    const response = await api.get(`/produtos_loja/${productStoreId}/configuracao`);
+    return response.data.data;
+  },
+
+  async updateProductConfiguration(productStoreId: string, configuration: ProductConfiguration) {
+    const response = await api.put(`/produtos_loja/${productStoreId}/configuracao`, configuration, {
+      timeout: 60000,
+    });
+    invalidateStoreProductsCache();
+    return response.data.data;
+  },
+
   async importStoreProductsCSV(file: File) {
     const formData = new FormData();
     formData.append("file", file);
@@ -240,7 +259,7 @@ export const productsService = {
     return response.data.data;
   },
 
-  async updateStoreProduct(productStoreId: string, payload: ProductStorePayload) {
+  async updateStoreProduct(productStoreId: string, payload: Partial<ProductStorePayload> & Record<string, any>) {
     await api.patch(`/produtos_loja/${productStoreId}`, payload);
     invalidateStoreProductsCache();
   },

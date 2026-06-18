@@ -64,6 +64,8 @@ export function SettingsScreen() {
     telefone: "",
     email: "",
     descricao: "",
+    tipo_estabelecimento: "mercado",
+    cardapio_configuravel_ativo: false,
     horario_abertura: "",
     horario_fechamento: "",
     valor_minimo_pedido: 0,
@@ -450,7 +452,7 @@ export function SettingsScreen() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-gray-900 font-semibold">
-            Configurações do Mercado
+            Configurações da Loja
           </h2>
           <p className="text-gray-500 text-sm mt-0.5">
             Gerencie os dados e regras da operação
@@ -517,7 +519,7 @@ export function SettingsScreen() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                    Nome do mercado
+                    Nome da loja
                   </label>
                   <div className="text-sm font-medium text-gray-800">
                     {formData.nome || "Não informado"}
@@ -529,6 +531,22 @@ export function SettingsScreen() {
                   </label>
                   <div className="text-sm font-medium text-gray-800">
                     {formData.cnpj || "Não informado"}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                    Tipo de estabelecimento
+                  </label>
+                  <div className="text-sm font-medium capitalize text-gray-800">
+                    {formData.tipo_estabelecimento || "mercado"}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                    Cardápio configurável
+                  </label>
+                  <div className={`text-sm font-semibold ${formData.cardapio_configuravel_ativo ? "text-green-600" : "text-gray-500"}`}>
+                    {formData.cardapio_configuravel_ativo ? "Habilitado pela plataforma" : "Ainda não habilitado"}
                   </div>
                 </div>
                 <div className="sm:col-span-2">

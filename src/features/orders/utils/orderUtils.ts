@@ -43,6 +43,28 @@ export const getOrderItemName = (item: any) => {
   return variation ? `${name} - ${variation}` : name;
 };
 
+export const getOrderItemConfigurationLines = (item: any) => {
+  const lines: string[] = [];
+  const variation = firstText(item?.nome_variacao);
+  if (variation) lines.push(`Tamanho: ${variation}`);
+
+  const selections = Array.isArray(item?.selecoes) ? item.selecoes : [];
+  selections.forEach((selection: any) => {
+    const group = firstText(selection?.nome_grupo);
+    const option = firstText(selection?.nome_opcao);
+    if (!option) return;
+    const quantity = toNumber(selection?.quantidade);
+    const fraction = toNumber(selection?.fracao);
+    const suffix = [
+      quantity > 1 ? `x${quantity}` : "",
+      fraction > 0 ? `${Math.round(fraction * 100)}%` : "",
+    ].filter(Boolean).join(", ");
+    lines.push(`${group ? `${group}: ` : ""}${option}${suffix ? ` (${suffix})` : ""}`);
+  });
+
+  return lines;
+};
+
 export const getOrderItemQuantity = (item: any) =>
   toNumber(item?.quantidade ?? item?.quantity ?? item?.qty);
 

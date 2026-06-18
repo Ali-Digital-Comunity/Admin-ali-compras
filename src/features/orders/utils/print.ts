@@ -2,6 +2,7 @@ import { statusLabels } from '@/features/orders/constants';
 import { formatBrasiliaDate } from '@/shared/lib/dateTime';
 import {
   getOrderItemName,
+  getOrderItemConfigurationLines,
   getOrderItemQuantity,
   getOrderItemTotal,
   getOrderAddress,
@@ -25,6 +26,9 @@ const formatMoney = (value: unknown) => {
 };
 
 const printableText = (value: unknown) => String(value ?? "").trim();
+const renderItemConfiguration = (item: any) => getOrderItemConfigurationLines(item)
+  .map((line) => `<p class="option">${escapeHtml(line)}</p>`)
+  .join("");
 
 const renderStoreHeader = (store: any) => {
   const name = printableText(store?.nome);
@@ -86,6 +90,7 @@ export const printComanda = (
     .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
     .row-total { display: flex; justify-content: space-between; font-size: 14px; font-weight: bold; margin-bottom: 3px; }
     .obs { font-size: 10px; color: #555; margin: 0 0 5px 16px; font-style: italic; }
+    .option { font-size: 10px; margin: 0 0 2px 16px; }
     p { margin-bottom: 4px; }
     .tag { display: inline-block; border: 1px solid #000; padding: 1px 6px; font-size: 11px; margin: 2px 0; }
   </style>
@@ -113,6 +118,7 @@ export const printComanda = (
       <span>${escapeHtml(getOrderItemQuantity(i))}x ${escapeHtml(getOrderItemName(i))}</span>
       <span>R$ ${formatMoney(getOrderItemTotal(i))}</span>
     </div>
+    ${renderItemConfiguration(i)}
     ${i.observacoes || i.obs ? `<p class="obs">Obs: ${escapeHtml(i.observacoes || i.obs)}</p>` : ""}
   `,
     )
