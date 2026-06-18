@@ -76,7 +76,7 @@ function CustomerDetail({ customer, onClose }: { customer: any; onClose: () => v
         <div className="flex-1">
           <h2 className="text-gray-900 font-semibold">{customer.nome}</h2>
           <div className="text-xs text-gray-400 mt-0.5">
-            Cliente desde {formatBrasiliaDate(customer.criado_em, { month: 'short', year: 'numeric' })}
+            Cliente da loja desde {formatBrasiliaDate(customer.store_customer_created_at || customer.criado_em, { month: 'short', year: 'numeric' })}
           </div>
         </div>
         <button onClick={onClose} className="hidden lg:block text-gray-400 hover:text-gray-600">

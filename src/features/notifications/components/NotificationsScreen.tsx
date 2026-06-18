@@ -36,7 +36,6 @@ const audienceOptions: Array<{ value: CampaignAudience; label: string; help: str
   { value: 'all_customers', label: 'Todos os clientes', help: 'Clientes que permitiram campanhas push.' },
   { value: 'recent_customers', label: 'Compraram nos últimos 30 dias', help: 'Clientes com compra recente não cancelada.' },
   { value: 'inactive_customers', label: 'Sem comprar há 60 dias', help: 'Clientes que já compraram, mas estão inativos.' },
-  { value: 'never_ordered', label: 'Ainda não compraram', help: 'Clientes cadastrados sem pedidos válidos.' },
   { value: 'loyal_customers', label: 'Clientes fiéis', help: 'Quantidade mínima de pedidos escolhida abaixo.' },
   { value: 'high_value_customers', label: 'Clientes de alto valor', help: 'Total mínimo gasto escolhido abaixo.' },
   { value: 'birthday_month', label: 'Aniversariantes do mês', help: 'Clientes com aniversário no mês escolhido.' },

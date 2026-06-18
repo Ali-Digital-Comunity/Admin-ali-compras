@@ -17,7 +17,6 @@ export type CampaignAudience =
   | 'all_customers'
   | 'recent_customers'
   | 'inactive_customers'
-  | 'never_ordered'
   | 'loyal_customers'
   | 'high_value_customers'
   | 'birthday_month';
