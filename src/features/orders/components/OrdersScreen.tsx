@@ -114,6 +114,8 @@ const formatCashChangeInfo = (payment: any) => {
 
   return "";
 };
+const canOrderProceedForFulfillment = (order: any, payments: any[] = []) =>
+  isOrderPaid(order, payments) || isOrderPendingCash(order, payments);
 const REFUND_ACTIVE_STATUSES = new Set(["pendente", "processando", "aprovado"]);
 
 export function OrdersScreen() {
@@ -602,8 +604,7 @@ export function OrdersScreen() {
     }
 
     if (
-      !isOrderPaid(selected, selectedPayments) &&
-      !isOrderPendingCash(selected, selectedPayments)
+      !canOrderProceedForFulfillment(selected, selectedPayments)
     ) {
       showSystemNotice(
         "O pedido só pode avançar após a aprovação do pagamento.",
@@ -1477,7 +1478,7 @@ export function OrdersScreen() {
     );
     const activeOrders = uniqueOrders.filter(
       (order) =>
-        isOrderPaid(order) &&
+        canOrderProceedForFulfillment(order) &&
         !assignedOrderIds.has(order.id) &&
         !hasPendingCancellationRequest(order) &&
         ![
@@ -1890,7 +1891,7 @@ export function OrdersScreen() {
                     const isEntrega = isDeliveryOrder(order);
                     const canSelectForDelivery =
                       isEntrega &&
-                      isOrderPaid(order) &&
+                      canOrderProceedForFulfillment(order) &&
                       !assignedOrderIds.has(order.id) &&
                       !hasPendingCancellationRequest(order) &&
                       !["entregue", "nao_entregue", "cancelado"].includes(
@@ -1968,7 +1969,7 @@ export function OrdersScreen() {
                                     Arquivado
                                   </span>
                                 )}
-                                {!isOrderPaid(order) && (
+                                {!canOrderProceedForFulfillment(order) && (
                                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
                                     Pagamento pendente
                                   </span>
@@ -2115,7 +2116,7 @@ export function OrdersScreen() {
               const isExpanded = expandedBairros[bairro] !== false; // expanded by default
               const activeOrders = group.orders.filter(
                 (o) =>
-                  isOrderPaid(o) &&
+                  canOrderProceedForFulfillment(o) &&
                   !hasPendingCancellationRequest(o) &&
                   ![
                     "entregue",
@@ -2249,7 +2250,7 @@ export function OrdersScreen() {
                             text: "#666",
                           };
                         const canSelectForDelivery =
-                          isOrderPaid(order) &&
+                          canOrderProceedForFulfillment(order) &&
                           !assignedOrderIds.has(order.id) &&
                           !hasPendingCancellationRequest(order) &&
                           !["entregue", "nao_entregue", "cancelado"].includes(
@@ -2323,7 +2324,7 @@ export function OrdersScreen() {
                                 >
                                   {statusDisplay}
                                 </span>
-                                {!isOrderPaid(order) && (
+                                {!canOrderProceedForFulfillment(order) && (
                                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
                                     Pagamento pendente
                                   </span>
