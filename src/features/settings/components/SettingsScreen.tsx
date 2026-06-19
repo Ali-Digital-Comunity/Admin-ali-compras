@@ -35,6 +35,13 @@ const sections = [
   "Segurança",
 ];
 
+const mpOAuthErrorMessages: Record<string, string> = {
+  MERCADOPAGO_OAUTH_TOKEN_EXCHANGE_FAILED:
+    "Não foi possível concluir a conexão com o Mercado Pago. Verifique se a Redirect URL cadastrada no Mercado Pago é exatamente a URL do backend e se as credenciais da aplicação estão corretas.",
+  mercadopago_oauth_failed:
+    "Não foi possível concluir a conexão com o Mercado Pago. Tente novamente ou revise as credenciais da aplicação.",
+};
+
 export function SettingsScreen() {
   const [activeSection, setActiveSection] = useState("Dados do Mercado");
   const [saved, setSaved] = useState(false);
@@ -217,6 +224,27 @@ export function SettingsScreen() {
     checkGatewayConnections();
     loadAreasEntrega();
   }, [loadData, checkGatewayConnections, loadAreasEntrega]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mpConnected = params.get("mp_connected");
+    if (!mpConnected) return;
+
+    setActiveSection("Pagamentos");
+
+    if (mpConnected === "true") {
+      showSystemNotice("Conta Mercado Pago conectada com sucesso.");
+      checkGatewayConnections();
+    } else {
+      const errorCode = params.get("mp_error") || "mercadopago_oauth_failed";
+      setError(mpOAuthErrorMessages[errorCode] || mpOAuthErrorMessages.mercadopago_oauth_failed);
+    }
+
+    params.delete("mp_connected");
+    params.delete("mp_error");
+    const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+    window.history.replaceState({}, "", cleanUrl);
+  }, [checkGatewayConnections]);
 
   const save = async () => {
     try {
