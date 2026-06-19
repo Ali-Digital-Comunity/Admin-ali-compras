@@ -71,7 +71,8 @@ export function PaymentsScreen() {
           'cartao_credito': 'Cartão de Crédito',
           'cartao_debito': 'Cartão de Débito',
           'pix': 'PIX',
-          'cash': 'Dinheiro'
+          'cash': 'Dinheiro',
+          'dinheiro': 'Dinheiro',
         };
 
         const statusMapping: Record<string, string> = {
@@ -94,7 +95,14 @@ export function PaymentsScreen() {
           method: methodMapping[p.forma_pagamento] || 'Dinheiro',
           value: parseFloat(p.valor) || 0,
           status: statusMapping[p.status] || 'Pendente',
-          date: formatBrasiliaDate(p.criado_em, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+          date: formatBrasiliaDate(p.criado_em, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          cashChange: p.forma_pagamento === 'dinheiro'
+            ? p.sem_troco
+              ? 'Sem troco'
+              : p.troco_para != null
+                ? `Troco para R$ ${Number(p.troco_para || 0).toFixed(2).replace('.', ',')}`
+                : ''
+            : '',
         };
       });
 
@@ -268,6 +276,11 @@ export function PaymentsScreen() {
                         <MethodIcon className="w-4 h-4" />
                         <span className="text-sm">{payment.method}</span>
                       </div>
+                      {payment.cashChange && (
+                        <div className="mt-1 text-xs text-gray-400">
+                          {payment.cashChange}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-800">
                       R$ {payment.value.toFixed(2).replace('.', ',')}

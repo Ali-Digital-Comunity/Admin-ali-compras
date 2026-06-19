@@ -100,6 +100,19 @@ const formatCurrency = (value: unknown) =>
   `R$ ${Number(value || 0)
     .toFixed(2)
     .replace(".", ",")}`;
+const formatCashChangeInfo = (payment: any) => {
+  if (payment?.forma_pagamento !== "dinheiro" && payment?.method !== "dinheiro") {
+    return "";
+  }
+
+  if (payment?.sem_troco === true) return "Não precisa de troco";
+
+  if (payment?.troco_para != null) {
+    return `Troco para ${formatCurrency(payment.troco_para)} · devolver ${formatCurrency(payment.troco_valor || 0)}`;
+  }
+
+  return "";
+};
 const REFUND_ACTIVE_STATUSES = new Set(["pendente", "processando", "aprovado"]);
 
 export function OrdersScreen() {
@@ -1248,6 +1261,7 @@ export function OrdersScreen() {
     selected,
     selectedPayment,
   );
+  const selectedCashChangeInfo = formatCashChangeInfo(selectedPayment);
   const selectedStatusUpdating = updatingStatusOrderId === selected?.id;
   const selectedCancelling = cancellingOrderId === selected?.id;
   const selectedArchiving = archivingOrderId === selected?.id;
@@ -2872,6 +2886,16 @@ export function OrdersScreen() {
               {!selectedIsPaid && (
                 <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Pagamento pendente
+                </div>
+              )}
+              {selectedCashChangeInfo && (
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    Troco
+                  </div>
+                  <div className="mt-0.5 text-sm font-semibold text-gray-700">
+                    {selectedCashChangeInfo}
+                  </div>
                 </div>
               )}
               {selectedRefunds.length > 0 && (
