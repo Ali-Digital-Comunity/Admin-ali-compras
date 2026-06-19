@@ -3,7 +3,9 @@ import {
   Armchair,
   ChefHat,
   ClipboardList,
+  CreditCard,
   Download,
+  KeyRound,
   Loader2,
   Plus,
   QrCode,
@@ -11,6 +13,8 @@ import {
   Receipt,
   Search,
   ShoppingCart,
+  UserCheck,
+  X,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { salaoService } from "@/features/salao/services/salaoService";
@@ -65,6 +69,7 @@ export function SalaoPage() {
   const [tab, setTab] = useState<"mesas" | "comandas" | "kds">("mesas");
   const [mesas, setMesas] = useState<any[]>([]);
   const [comandas, setComandas] = useState<any[]>([]);
+  const [openingRequests, setOpeningRequests] = useState<any[]>([]);
   const [kds, setKds] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,19 +81,22 @@ export function SalaoPage() {
   const [itemQuantity, setItemQuantity] = useState("1");
   const [itemNotes, setItemNotes] = useState("");
   const [addingItem, setAddingItem] = useState(false);
+  const [latestPin, setLatestPin] = useState("");
 
   const load = async () => {
     if (!user?.loja_id) return;
     setLoading(true);
     try {
-      const [tablesPayload, tabsPayload, kdsPayload, productsPayload] = await Promise.all([
+      const [tablesPayload, tabsPayload, requestsPayload, kdsPayload, productsPayload] = await Promise.all([
         salaoService.listMesas({ loja_id: user.loja_id, per_page: 100 }),
-        salaoService.listComandas({ loja_id: user.loja_id, status: "aberta", per_page: 100 }),
+        salaoService.listComandas({ loja_id: user.loja_id, per_page: 100 }),
+        salaoService.listOpeningRequests({ loja_id: user.loja_id, status: "pendente" }),
         salaoService.listKds({ loja_id: user.loja_id }),
         productsService.getStoreProductsPage({ page: 1, perPage: 100, activeOnly: true }, { forceRefresh: true }),
       ]);
       setMesas(unwrapList(tablesPayload));
-      setComandas(unwrapList(tabsPayload));
+      setComandas(unwrapList(tabsPayload).filter((item: any) => !["paga", "cancelada"].includes(item.status)));
+      setOpeningRequests(unwrapList(requestsPayload));
       setKds(unwrapList(kdsPayload));
       setProducts(productsPayload.products || []);
     } catch (error: any) {
@@ -100,6 +108,8 @@ export function SalaoPage() {
 
   useEffect(() => {
     void load();
+    const interval = window.setInterval(() => void load(), 12000);
+    return () => window.clearInterval(interval);
   }, []);
 
   const createMesa = async () => {
@@ -128,10 +138,36 @@ export function SalaoPage() {
         quantidade_pessoas: 1,
       });
       setSelectedComanda(result);
+      if (result?.pin) {
+        setLatestPin(result.pin);
+        showSystemNotice(`Comanda aberta. PIN da mesa: ${result.pin}`);
+      }
       setTab("comandas");
       await load();
     } catch (error: any) {
       showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel abrir a comanda.");
+    }
+  };
+
+  const approveOpeningRequest = async (request: any) => {
+    try {
+      const result = await salaoService.approveOpeningRequest(request.id);
+      setSelectedComanda(result.comanda);
+      setLatestPin(result.comanda?.pin || "");
+      setTab("comandas");
+      showSystemNotice(`Solicitacao aprovada. PIN da mesa: ${result.comanda?.pin || "gerado"}`);
+      await load();
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel aprovar a solicitacao.");
+    }
+  };
+
+  const refuseOpeningRequest = async (request: any) => {
+    try {
+      await salaoService.refuseOpeningRequest(request.id);
+      await load();
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel recusar a solicitacao.");
     }
   };
 
@@ -199,10 +235,40 @@ export function SalaoPage() {
         tipo: "compartilhada",
         percentual_taxa_servico: 10,
       });
-      setSelectedComanda(null);
+      const detail = await salaoService.getComanda(comanda.id);
+      setSelectedComanda(detail);
       await load();
     } catch (error: any) {
       showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel fechar a conta.");
+    }
+  };
+
+  const regeneratePin = async (comanda: any) => {
+    try {
+      const result = await salaoService.regeneratePin(comanda.id);
+      setLatestPin(result.pin);
+      showSystemNotice(`Novo PIN da mesa: ${result.pin}`);
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel gerar novo PIN.");
+    }
+  };
+
+  const confirmPayment = async (comanda: any) => {
+    try {
+      await salaoService.confirmPayment(comanda.id);
+      setSelectedComanda(null);
+      await load();
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel confirmar o pagamento.");
+    }
+  };
+
+  const unblockParticipant = async (participant: any) => {
+    try {
+      await salaoService.unblockParticipant(participant.id);
+      if (selectedComanda?.id) setSelectedComanda(await salaoService.getComanda(selectedComanda.id));
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel desbloquear o participante.");
     }
   };
 
@@ -263,6 +329,39 @@ export function SalaoPage() {
           </div>
         ) : tab === "mesas" ? (
           <div className="space-y-4">
+            {openingRequests.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                  <UserCheck className="h-4 w-4" />
+                  Solicitações de abertura pendentes
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {openingRequests.map((request) => (
+                    <div key={request.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                      <div className="font-semibold text-gray-900">Mesa {request.mesa?.numero}</div>
+                      <div className="text-sm text-gray-600">{request.nome_snapshot || "Cliente"}</div>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => void approveOpeningRequest(request)}
+                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-md bg-emerald-600 px-2 py-2 text-xs font-semibold text-white"
+                        >
+                          <UserCheck className="h-3.5 w-3.5" />
+                          Aprovar
+                        </button>
+                        <button
+                          onClick={() => void refuseOpeningRequest(request)}
+                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-gray-200 px-2 py-2 text-xs font-semibold text-gray-700"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Recusar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex max-w-sm gap-2">
               <input
                 value={newTableNumber}
@@ -283,7 +382,18 @@ export function SalaoPage() {
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {mesas.map((mesa) => (
-                <div key={mesa.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <div
+                  key={mesa.id}
+                  className={`rounded-lg border bg-white p-4 shadow-sm ${
+                    mesa.destaque === "abertura_pendente"
+                      ? "border-amber-300 ring-2 ring-amber-100"
+                      : mesa.destaque === "novo_pedido"
+                        ? "border-emerald-300 ring-2 ring-emerald-100"
+                        : mesa.destaque === "aguardando_conta" || mesa.destaque === "aguardando_pagamento"
+                          ? "border-blue-300 ring-2 ring-blue-100"
+                          : "border-gray-200"
+                  }`}
+                >
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="text-sm text-gray-500">Mesa</div>
@@ -293,6 +403,19 @@ export function SalaoPage() {
                       {mesa.status?.replace(/_/g, " ")}
                     </span>
                   </div>
+                  {mesa.solicitacao_abertura && (
+                    <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      Abertura pendente: {mesa.solicitacao_abertura.nome_snapshot || "Cliente"}
+                    </div>
+                  )}
+                  {mesa.comanda_aberta && (
+                    <div className="mt-3 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                      <div>{mesa.comanda_aberta.numero_comanda} · R$ {formatMoney(mesa.comanda_aberta.total)}</div>
+                      {mesa.comanda_aberta.novos_itens > 0 && <div className="font-semibold text-emerald-700">Novo pedido no KDS</div>}
+                      {mesa.comanda_aberta.status === "aguardando_conta" && <div className="font-semibold text-blue-700">Conta solicitada</div>}
+                      {mesa.comanda_aberta.status === "fechada" && <div className="font-semibold text-blue-700">Aguardando pagamento</div>}
+                    </div>
+                  )}
                   <div className="mt-4 space-y-2">
                     <button
                       onClick={() => void openComanda(mesa)}
@@ -308,6 +431,17 @@ export function SalaoPage() {
                       <Download className="h-4 w-4" />
                       Baixar QR Code
                     </button>
+                    {mesa.comanda_aberta && (
+                      <button
+                        onClick={() => {
+                          setTab("comandas");
+                          void selectComanda(mesa.comanda_aberta);
+                        }}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      >
+                        Ver comanda
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -350,6 +484,45 @@ export function SalaoPage() {
                       <div className="text-left sm:text-right">
                         <div className="text-xs text-gray-500">Total</div>
                         <div className="text-xl font-semibold text-gray-900">R$ {formatMoney(selectedComanda.total)}</div>
+                        <div className="text-xs capitalize text-gray-500">{selectedComanda.status?.replace(/_/g, " ")}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900">
+                          <KeyRound className="h-4 w-4" />
+                          PIN da sessão
+                        </div>
+                        <div className="text-2xl font-semibold tracking-widest text-gray-950">{latestPin || selectedComanda.pin || "----"}</div>
+                        <button
+                          onClick={() => void regeneratePin(selectedComanda)}
+                          disabled={!["aberta", "aguardando_conta"].includes(selectedComanda.status)}
+                          className="mt-2 inline-flex items-center gap-2 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-700 disabled:opacity-50"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Gerar novo PIN
+                        </button>
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                        <div className="mb-2 text-sm font-semibold text-gray-900">Participantes</div>
+                        <div className="space-y-1">
+                          {(selectedComanda.participantes || []).map((participant: any) => (
+                            <div key={participant.id} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="truncate text-gray-700">{participant.nome_snapshot || participant.nome}</span>
+                              {participant.status === "bloqueado" ? (
+                                <button
+                                  onClick={() => void unblockParticipant(participant)}
+                                  className="rounded-md bg-red-50 px-2 py-1 font-semibold text-red-700"
+                                >
+                                  Desbloquear PIN
+                                </button>
+                              ) : (
+                                <span className="rounded-full bg-white px-2 py-1 capitalize text-gray-500">{participant.status || "ativo"}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
@@ -376,13 +549,22 @@ export function SalaoPage() {
 
                     <button
                       onClick={() => void closeAccount(selectedComanda)}
-                      disabled={(selectedComanda.itens || []).length === 0}
+                      disabled={(selectedComanda.itens || []).length === 0 || selectedComanda.status === "fechada"}
                       className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: PRIMARY }}
                     >
                       <Receipt className="h-4 w-4" />
                       Fechar conta compartilhada
                     </button>
+                    {["fechada", "aguardando_conta"].includes(selectedComanda.status) && (
+                      <button
+                        onClick={() => void confirmPayment(selectedComanda)}
+                        className="ml-2 mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        Confirmar pagamento
+                      </button>
+                    )}
                   </div>
 
                   <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
@@ -435,7 +617,7 @@ export function SalaoPage() {
                     </div>
                     <button
                       onClick={() => void addProductToComanda()}
-                      disabled={!selectedProduct || addingItem}
+                      disabled={!selectedProduct || addingItem || selectedComanda.status !== "aberta"}
                       className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: PRIMARY }}
                     >

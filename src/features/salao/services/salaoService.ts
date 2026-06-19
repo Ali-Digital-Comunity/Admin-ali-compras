@@ -14,6 +14,15 @@ export const salaoService = {
   rotateMesaQr: async (id: string) =>
     unwrap(await api.post(`/salao/mesas/${id}/qrcode/rotate`)),
 
+  listOpeningRequests: async (params?: Record<string, unknown>) =>
+    unwrap(await api.get("/salao/solicitacoes", { params })),
+
+  approveOpeningRequest: async (id: string) =>
+    unwrap(await api.post(`/salao/solicitacoes/${id}/aprovar`)),
+
+  refuseOpeningRequest: async (id: string, data?: Record<string, unknown>) =>
+    unwrap(await api.post(`/salao/solicitacoes/${id}/recusar`, data || {})),
+
   openComanda: async (data: Record<string, unknown>) =>
     unwrap(await api.post("/salao/comandas", data)),
 
@@ -26,8 +35,17 @@ export const salaoService = {
   addItem: async (comandaId: string, data: Record<string, unknown>) =>
     unwrap(await api.post(`/salao/comandas/${comandaId}/itens`, data)),
 
+  regeneratePin: async (comandaId: string) =>
+    unwrap(await api.post(`/salao/comandas/${comandaId}/gerar-novo-pin`)),
+
   closeAccount: async (comandaId: string, data: Record<string, unknown>) =>
     unwrap(await api.post(`/salao/comandas/${comandaId}/fechar-conta`, data)),
+
+  confirmPayment: async (comandaId: string) =>
+    unwrap(await api.post(`/salao/comandas/${comandaId}/confirmar-pagamento`)),
+
+  unblockParticipant: async (participantId: string) =>
+    unwrap(await api.post(`/salao/participantes/${participantId}/desbloquear-pin`)),
 
   transferTable: async (comandaId: string, data: Record<string, unknown>) =>
     unwrap(await api.post(`/salao/comandas/${comandaId}/transferir-mesa`, data)),
