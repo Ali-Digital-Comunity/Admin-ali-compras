@@ -59,6 +59,7 @@ import {
   hexToRgba,
   isDeliveryOrder,
   isOrderPaid,
+  isOrderPendingCash,
 } from "@/features/orders/utils/orderUtils";
 import { DeliveryAssignmentModal } from "@/features/orders/components/DeliveryAssignmentModal";
 import { OrderItemsChecklistModal } from "@/features/orders/components/OrderItemsChecklistModal";
@@ -156,6 +157,7 @@ export function OrdersScreen() {
   const [assigningCourier, setAssigningCourier] = useState(false);
   const [unassigningDeliveryId, setUnassigningDeliveryId] = useState("");
   const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState("");
+  const [confirmingCashPaymentId, setConfirmingCashPaymentId] = useState("");
   const [cancellingOrderId, setCancellingOrderId] = useState("");
   const [archivingOrderId, setArchivingOrderId] = useState("");
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -599,7 +601,10 @@ export function OrdersScreen() {
       return;
     }
 
-    if (!isOrderPaid(selected, selectedPayments)) {
+    if (
+      !isOrderPaid(selected, selectedPayments) &&
+      !isOrderPendingCash(selected, selectedPayments)
+    ) {
       showSystemNotice(
         "O pedido só pode avançar após a aprovação do pagamento.",
       );
@@ -749,9 +754,24 @@ export function OrdersScreen() {
     if (idx >= 0 && idx < backendStatusFlow.length - 1) {
       const nextStatus = backendStatusFlow[idx + 1];
 
-      if (!isOrderPaid(order, selected?.id === id ? selectedPayments : [])) {
+      const orderPayments = selected?.id === id ? selectedPayments : [];
+      const orderIsPaid = isOrderPaid(order, orderPayments);
+      const orderHasPendingCash = isOrderPendingCash(order, orderPayments);
+
+      if (!orderIsPaid && !orderHasPendingCash) {
         showSystemNotice(
           "O pedido só pode avançar após a aprovação do pagamento.",
+        );
+        return;
+      }
+
+      if (
+        orderType === "retirada" &&
+        nextStatus === "entregue" &&
+        orderHasPendingCash
+      ) {
+        showSystemNotice(
+          "Confirme o recebimento do dinheiro antes de concluir a retirada.",
         );
         return;
       }
@@ -823,6 +843,46 @@ export function OrdersScreen() {
           currentId === id ? "" : currentId,
         );
       }
+    }
+  };
+
+  const confirmCashPayment = async () => {
+    if (!selected?.id || !selectedPayment?.id || !selectedIsPendingCash) return;
+
+    try {
+      setConfirmingCashPaymentId(selectedPayment.id);
+      const response = await api.patch(`/pagamentos/${selectedPayment.id}/status`, {
+        status: "aprovado",
+        observacao: "Pagamento em dinheiro recebido na retirada",
+      });
+      const updatedPayment = response.data.data || response.data;
+
+      setSelectedPayments((previous) =>
+        previous.map((payment) =>
+          payment.id === updatedPayment.id ? updatedPayment : payment,
+        ),
+      );
+      setSelected((previous: any) =>
+        previous ? { ...previous, pagamento: updatedPayment } : previous,
+      );
+      setOrders((previous) =>
+        previous.map((order) =>
+          order.id === selected.id
+            ? { ...order, pagamento: updatedPayment }
+            : order,
+        ),
+      );
+      await fetchOrders(1, true, { silent: true });
+      showSystemNotice("Pagamento em dinheiro confirmado como recebido.");
+    } catch (error) {
+      showSystemNotice(
+        getApiErrorMessage(
+          error,
+          "Não foi possível confirmar o pagamento em dinheiro.",
+        ),
+      );
+    } finally {
+      setConfirmingCashPaymentId("");
     }
   };
 
@@ -1226,6 +1286,7 @@ export function OrdersScreen() {
         : `${newOrdersCount} novos pedidos`;
   const selectedPayment = getPreferredOrderPayment(selected, selectedPayments);
   const selectedIsPaid = isOrderPaid(selected, selectedPayments);
+  const selectedIsPendingCash = isOrderPendingCash(selected, selectedPayments);
   const selectedRefundedAmount = selectedRefunds
     .filter((refund) =>
       REFUND_ACTIVE_STATUSES.has(String(refund.status || "").toLowerCase()),
@@ -1290,11 +1351,15 @@ export function OrdersScreen() {
   const selectedIsDelivery =
     String(selected?.tipo_pedido || selected?.type || "").toLowerCase() ===
     "entrega";
+  const selectedIsPickup = Boolean(selected) && !selectedIsDelivery;
   const selectedStatusLabel = selected ? getStatusLabel(selected.status) : "";
   const adminCannotDispatchDelivery =
     selectedIsDelivery && selectedStatusLabel === "Pronto";
   const adminCannotConfirmDelivery =
     selectedIsDelivery && selectedStatusLabel === "Saiu para Entrega";
+  const selectedCanProceed = selectedIsPaid || selectedIsPendingCash;
+  const selectedPickupNeedsCashConfirmation =
+    selectedIsPickup && selectedIsPendingCash && selectedStatusLabel === "Pronto";
   const selectedCustomerName =
     selected?.cliente?.nome || selected?.customer || "";
   const selectedOrderNumber =
@@ -2885,8 +2950,23 @@ export function OrdersScreen() {
               )}
               {!selectedIsPaid && (
                 <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  Pagamento pendente
+                  {selectedIsPendingCash
+                    ? "Pagamento em dinheiro pendente de recebimento."
+                    : "Pagamento pendente"}
                 </div>
+              )}
+              {selectedIsPickup && selectedIsPendingCash && (
+                <button
+                  type="button"
+                  onClick={confirmCashPayment}
+                  disabled={!selectedPayment?.id || confirmingCashPaymentId === selectedPayment.id}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-green-700 px-3 py-2 text-xs font-semibold text-white hover:bg-green-800 disabled:cursor-wait disabled:opacity-70"
+                >
+                  {confirmingCashPaymentId === selectedPayment?.id && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  )}
+                  Marcar dinheiro como recebido
+                </button>
               )}
               {selectedCashChangeInfo && (
                 <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
@@ -3037,7 +3117,8 @@ export function OrdersScreen() {
               {getStatusLabel(selected.status) !== "Entregue" &&
                 getStatusLabel(selected.status) !== "Cancelado" &&
                 getStatusLabel(selected.status) !== "Não entregue" &&
-                selectedIsPaid &&
+                selectedCanProceed &&
+                !selectedPickupNeedsCashConfirmation &&
                 !selectedCancellationPending &&
                 !adminCannotDispatchDelivery &&
                 !adminCannotConfirmDelivery && (
@@ -3080,7 +3161,7 @@ export function OrdersScreen() {
                     )}
                   </button>
                 )}
-              {!selectedIsPaid &&
+              {!selectedCanProceed &&
                 getStatusLabel(selected.status) !== "Entregue" &&
                 getStatusLabel(selected.status) !== "Cancelado" &&
                 getStatusLabel(selected.status) !== "Não entregue" && (
@@ -3088,6 +3169,12 @@ export function OrdersScreen() {
                     O pedido só pode avançar após a aprovação do pagamento.
                   </div>
                 )}
+              {selectedPickupNeedsCashConfirmation && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  Confirme o recebimento do dinheiro antes de finalizar a
+                  retirada.
+                </div>
+              )}
               {adminCannotDispatchDelivery && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                   Pedido pronto. A saída para entrega deve ser iniciada pelo

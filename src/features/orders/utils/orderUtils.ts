@@ -191,6 +191,10 @@ export const formatPaymentStatus = (value: unknown) => {
 export const isApprovedPayment = (payment: any) =>
   cleanText(payment?.status).toLowerCase() === "aprovado";
 
+export const isPendingCashPayment = (payment: any) =>
+  cleanText(payment?.forma_pagamento || payment?.method).toLowerCase() === "dinheiro" &&
+  cleanText(payment?.status).toLowerCase() === "pendente";
+
 export const getPreferredOrderPayment = (order: any, payments: any[] = []) =>
   payments.find(isApprovedPayment) ||
   payments[0] ||
@@ -201,6 +205,9 @@ export const isOrderPaid = (order: any, payments: any[] = []) =>
   payments.some(isApprovedPayment) ||
   isApprovedPayment(order?.pagamento) ||
   cleanText(order?.payment_status).toLowerCase() === "aprovado";
+
+export const isOrderPendingCash = (order: any, payments: any[] = []) =>
+  payments.some(isPendingCashPayment) || isPendingCashPayment(order?.pagamento);
 
 export const getOrderPaymentMethod = (order: any, payment?: any) =>
   formatPaymentMethod(
