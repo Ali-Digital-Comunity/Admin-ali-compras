@@ -703,7 +703,7 @@ export function SalaoPage() {
             <div ref={comandaDetailRef} className="scroll-mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               {selectedComanda ? (
                 <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-                  <div>
+                  <div className="order-2 lg:order-none">
                     <div className="flex flex-col gap-2 border-b border-gray-100 pb-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <h2 className="font-semibold text-gray-900">{selectedComanda.numero_comanda}</h2>
@@ -798,7 +798,7 @@ export function SalaoPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 lg:sticky lg:top-3 lg:self-start">
+                  <div className="order-1 sticky top-0 z-20 self-start rounded-xl border border-gray-100 bg-gray-50 p-3 shadow-sm lg:order-none lg:top-3">
                     <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
                       <ShoppingCart className="h-4 w-4" />
                       Adicionar produto
@@ -809,7 +809,7 @@ export function SalaoPage() {
                         value={productSearch}
                         onChange={(event) => setProductSearch(event.target.value)}
                         placeholder="Buscar produto"
-                        className="h-10 w-full rounded-lg border border-gray-300 pl-9 pr-3 text-sm"
+                        className="h-12 w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base"
                       />
                     </div>
 
@@ -868,14 +868,14 @@ export function SalaoPage() {
                       <input
                         value={itemQuantity}
                         onChange={(event) => setItemQuantity(event.target.value)}
-                        className="h-10 rounded-lg border border-gray-300 px-3 text-sm"
+                        className="h-12 rounded-xl border border-gray-300 px-3 text-base"
                         inputMode="decimal"
                         placeholder="Qtd."
                       />
                       <input
                         value={itemNotes}
                         onChange={(event) => setItemNotes(event.target.value)}
-                        className="h-10 rounded-lg border border-gray-300 px-3 text-sm"
+                        className="h-12 rounded-xl border border-gray-300 px-3 text-base"
                         placeholder="Observacao"
                       />
                     </div>
