@@ -100,6 +100,7 @@ export function SalaoPage() {
   const productsLoadedRef = useRef(false);
   const soundEnabledRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const comandaDetailRef = useRef<HTMLDivElement | null>(null);
 
   const playRealtimeAlert = useCallback(() => {
     if (!soundEnabledRef.current) return;
@@ -284,6 +285,7 @@ export function SalaoPage() {
     try {
       const detail = await salaoService.getComanda(comanda.id);
       setSelectedComanda(detail);
+      requestAnimationFrame(() => comandaDetailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (error: any) {
       showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel carregar a comanda.");
     }
@@ -500,7 +502,7 @@ export function SalaoPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-50">
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
+      <div className="border-b border-gray-200 bg-white px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Salao</h1>
@@ -509,13 +511,13 @@ export function SalaoPage() {
           <button
             onClick={() => void load({ manual: true, includeProducts: true })}
             disabled={loading || refreshing}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#122a4c] px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-200 hover:bg-[#0b1e38] disabled:opacity-60"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#122a4c] px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-200 hover:bg-[#0b1e38] disabled:opacity-60"
           >
             <RefreshCw className={`h-4 w-4 ${loading || refreshing ? "animate-spin" : ""}`} />
             {loading || refreshing ? "Atualizando..." : "Atualizar"}
           </button>
         </div>
-        <div className="mt-4 inline-flex rounded-lg bg-gray-100 p-1">
+        <div className="mt-3 flex gap-1 overflow-x-auto rounded-xl bg-gray-100 p-1 scrollbar-hide">
           {[
             ["mesas", Armchair, "Mesas"],
             ["comandas", ClipboardList, "Comandas"],
@@ -524,7 +526,7 @@ export function SalaoPage() {
             <button
               key={String(id)}
               onClick={() => setTab(id as any)}
-              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm ${tab === id ? activeTabClass : "text-gray-500"}`}
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold ${tab === id ? activeTabClass : "text-gray-500"}`}
             >
               <Icon className="h-4 w-4" />
               {label}
@@ -533,7 +535,7 @@ export function SalaoPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 pb-24 sm:p-6">
         {loading ? (
           <div className="flex h-64 items-center justify-center text-gray-500">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -574,17 +576,17 @@ export function SalaoPage() {
               </div>
             )}
 
-            <div className="flex max-w-sm gap-2">
+            <div className="flex w-full max-w-sm gap-2">
               <input
                 value={newTableNumber}
                 onChange={(event) => setNewTableNumber(event.target.value)}
                 placeholder="Numero da mesa"
-                className="h-10 flex-1 rounded-lg border border-gray-300 px-3 text-sm"
+                className="h-12 flex-1 rounded-xl border border-gray-300 px-3 text-base"
               />
               <button
                 onClick={() => void createMesa()}
                 disabled={creatingTable}
-                className="inline-flex items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white disabled:opacity-60"
+                className="inline-flex min-h-12 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-white disabled:opacity-60"
                 style={{ backgroundColor: PRIMARY }}
               >
                 <Plus className="h-4 w-4" />
@@ -635,7 +637,7 @@ export function SalaoPage() {
                     <button
                       onClick={() => void openComanda(mesa)}
                       disabled={Boolean(mesa.comanda_aberta) || actionBusy === `open-${mesa.id}`}
-                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm disabled:opacity-50"
+                      className="min-h-11 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold disabled:opacity-50"
                     >
                       {actionBusy === `open-${mesa.id}` ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Abrindo...</span> : mesa.comanda_aberta ? `Comanda ${mesa.comanda_aberta.numero_comanda}` : "Abrir comanda"}
                     </button>
@@ -643,7 +645,7 @@ export function SalaoPage() {
                       <button
                         onClick={() => setQrDownloadMesa(mesa)}
                         disabled={actionBusy === `qr-${mesa.id}` || actionBusy === `print-qr-${mesa.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700 disabled:opacity-60"
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 disabled:opacity-60"
                       >
                         {actionBusy === `qr-${mesa.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                         {actionBusy === `qr-${mesa.id}` ? "Gerando..." : "Baixar QR"}
@@ -651,7 +653,7 @@ export function SalaoPage() {
                       <button
                         onClick={() => void printQrCode(mesa)}
                         disabled={actionBusy === `qr-${mesa.id}` || actionBusy === `print-qr-${mesa.id}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
                       >
                         {actionBusy === `print-qr-${mesa.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
                         {actionBusy === `print-qr-${mesa.id}` ? "Preparando..." : "Imprimir QR"}
@@ -663,7 +665,7 @@ export function SalaoPage() {
                           setTab("comandas");
                           void selectComanda(mesa.comanda_aberta);
                         }}
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                        className="min-h-11 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold"
                       >
                         Ver comanda
                       </button>
@@ -680,7 +682,7 @@ export function SalaoPage() {
                 <button
                   key={comanda.id}
                   onClick={() => void selectComanda(comanda)}
-                  className={`w-full rounded-lg border bg-white p-4 text-left shadow-sm hover:border-blue-200 ${
+                  className={`min-h-20 w-full rounded-xl border bg-white p-4 text-left shadow-sm hover:border-blue-200 active:scale-[0.99] ${
                     selectedComanda?.id === comanda.id ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-gray-200"
                   }`}
                 >
@@ -698,7 +700,7 @@ export function SalaoPage() {
               ))}
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <div ref={comandaDetailRef} className="scroll-mt-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
               {selectedComanda ? (
                 <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
                   <div>
@@ -774,27 +776,29 @@ export function SalaoPage() {
                       )}
                     </div>
 
-                    <button
-                      onClick={() => void closeAccount(selectedComanda)}
-                      disabled={(selectedComanda.itens || []).length === 0 || selectedComanda.status === "fechada" || actionBusy === `close-${selectedComanda.id}`}
-                      className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: PRIMARY }}
-                    >
-                      {actionBusy === `close-${selectedComanda.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
-                      {actionBusy === `close-${selectedComanda.id}` ? "Finalizando conta..." : "Fechar conta compartilhada"}
-                    </button>
-                    {["fechada", "aguardando_conta"].includes(selectedComanda.status) && (
+                    <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap">
                       <button
-                        onClick={() => void confirmPayment(selectedComanda)}
-                        className="ml-2 mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                        onClick={() => void closeAccount(selectedComanda)}
+                        disabled={(selectedComanda.itens || []).length === 0 || selectedComanda.status === "fechada" || actionBusy === `close-${selectedComanda.id}`}
+                        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                        style={{ backgroundColor: PRIMARY }}
                       >
-                        <CreditCard className="h-4 w-4" />
-                        Confirmar pagamento
+                        {actionBusy === `close-${selectedComanda.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
+                        {actionBusy === `close-${selectedComanda.id}` ? "Finalizando conta..." : "Fechar conta compartilhada"}
                       </button>
-                    )}
+                      {["fechada", "aguardando_conta"].includes(selectedComanda.status) && (
+                        <button
+                          onClick={() => void confirmPayment(selectedComanda)}
+                          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                        >
+                          <CreditCard className="h-4 w-4" />
+                          Confirmar pagamento
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 lg:sticky lg:top-3 lg:self-start">
                     <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
                       <ShoppingCart className="h-4 w-4" />
                       Adicionar produto
@@ -878,7 +882,7 @@ export function SalaoPage() {
                     <button
                       onClick={() => void addProductToComanda()}
                       disabled={!selectedProduct || addingItem || configurationLoading || !configurationIsValid || selectedComanda.status !== "aberta"}
-                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: PRIMARY }}
                     >
                       {addingItem ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
@@ -912,7 +916,7 @@ export function SalaoPage() {
                       key={status}
                       onClick={() => void updateKds(item, status)}
                       disabled={actionBusy.startsWith(`kds-${item.id}-`)}
-                      className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs capitalize text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                      className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold capitalize text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                     >
                       {actionBusy === `kds-${item.id}-${status}` && <Loader2 className="h-3 w-3 animate-spin" />}
                       {status}
