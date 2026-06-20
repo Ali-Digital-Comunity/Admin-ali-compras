@@ -77,6 +77,7 @@ export function SalaoPage() {
   const [kds, setKds] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [creatingTable, setCreatingTable] = useState(false);
   const [newTableNumber, setNewTableNumber] = useState("");
   const [selectedComanda, setSelectedComanda] = useState<any | null>(null);
@@ -113,12 +114,13 @@ export function SalaoPage() {
     oscillator.stop(audio.currentTime + 0.25);
   }, []);
 
-  const load = useCallback(async (options: { silent?: boolean; includeProducts?: boolean } = {}) => {
+  const load = useCallback(async (options: { silent?: boolean; includeProducts?: boolean; manual?: boolean } = {}) => {
     if (!user?.loja_id) return;
     if (loadingRef.current) return;
     loadingRef.current = true;
     const shouldShowLoading = !options.silent && !hasLoadedRef.current;
     if (shouldShowLoading) setLoading(true);
+    if (options.manual) setRefreshing(true);
     try {
       const [tablesPayload, tabsPayload, requestsPayload, kdsPayload, productsPayload] = await Promise.all([
         salaoService.listMesas({ loja_id: user.loja_id, per_page: 100 }),
@@ -144,6 +146,7 @@ export function SalaoPage() {
       }
     } finally {
       setLoading(false);
+      setRefreshing(false);
       loadingRef.current = false;
     }
   }, [user?.loja_id]);
@@ -471,12 +474,12 @@ export function SalaoPage() {
             <p className="text-sm text-gray-500">Mesas, comandas, atendimento e cozinha.</p>
           </div>
           <button
-            onClick={() => void load()}
-            disabled={loading}
+            onClick={() => void load({ manual: true, includeProducts: true })}
+            disabled={loading || refreshing}
             className="inline-flex items-center gap-2 rounded-lg bg-[#122a4c] px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-200 hover:bg-[#0b1e38] disabled:opacity-60"
           >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            {loading ? "Atualizando..." : "Atualizar"}
+            <RefreshCw className={`h-4 w-4 ${loading || refreshing ? "animate-spin" : ""}`} />
+            {loading || refreshing ? "Atualizando..." : "Atualizar"}
           </button>
         </div>
         <div className="mt-4 inline-flex rounded-lg bg-gray-100 p-1">
