@@ -5,6 +5,7 @@ import {
   ClipboardList,
   CreditCard,
   Download,
+  Printer,
   KeyRound,
   Loader2,
   Plus,
@@ -312,6 +313,32 @@ export function SalaoPage() {
     }
   };
 
+  const printQrCode = async (mesa: any) => {
+    const printWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (!printWindow) {
+      showSystemNotice("Permita a abertura de janela para imprimir o QR Code.");
+      return;
+    }
+    setActionBusy(`print-qr-${mesa.id}`);
+    try {
+      const result = await salaoService.rotateMesaQr(mesa.id);
+      const url = `${CLIENT_BASE_URL}/mercado/${mesa.loja_id}/mesa/${result.qr_token}`;
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 900,
+        margin: 2,
+        errorCorrectionLevel: "M",
+        color: { dark: PRIMARY, light: "#ffffff" },
+      });
+      printWindow.document.write(`<!doctype html><html><head><title>QR Code - Mesa ${mesa.numero}</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:32px;color:#122a4c}img{width:360px;max-width:100%;margin:24px auto;display:block}h1{margin:0;font-size:28px}p{color:#475569;font-size:16px}@media print{body{padding:0}}</style></head><body><h1>Mesa ${mesa.numero}</h1><p>Aponte a câmera para abrir o cardápio e pedir.</p><img src="${dataUrl}" alt="QR Code da Mesa ${mesa.numero}"><p>${mesa.loja_nome || ""}</p><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</script></body></html>`);
+      printWindow.document.close();
+    } catch (error: any) {
+      printWindow.close();
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel imprimir o QR Code.");
+    } finally {
+      setActionBusy("");
+    }
+  };
+
   const addProductToComanda = async () => {
     if (!selectedComanda?.id || !selectedProductId) return;
     const quantity = Number(itemQuantity.replace(",", "."));
@@ -606,14 +633,24 @@ export function SalaoPage() {
                     >
                       {actionBusy === `open-${mesa.id}` ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Abrindo...</span> : mesa.comanda_aberta ? `Comanda ${mesa.comanda_aberta.numero_comanda}` : "Abrir comanda"}
                     </button>
-                    <button
-                      onClick={() => void downloadQrCode(mesa)}
-                      disabled={actionBusy === `qr-${mesa.id}`}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700"
-                    >
-                      {actionBusy === `qr-${mesa.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                      {actionBusy === `qr-${mesa.id}` ? "Gerando QR Code..." : "Baixar QR Code"}
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => void downloadQrCode(mesa)}
+                        disabled={actionBusy === `qr-${mesa.id}` || actionBusy === `print-qr-${mesa.id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700 disabled:opacity-60"
+                      >
+                        {actionBusy === `qr-${mesa.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        {actionBusy === `qr-${mesa.id}` ? "Gerando..." : "Baixar QR"}
+                      </button>
+                      <button
+                        onClick={() => void printQrCode(mesa)}
+                        disabled={actionBusy === `qr-${mesa.id}` || actionBusy === `print-qr-${mesa.id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 disabled:opacity-60"
+                      >
+                        {actionBusy === `print-qr-${mesa.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                        {actionBusy === `print-qr-${mesa.id}` ? "Preparando..." : "Imprimir QR"}
+                      </button>
+                    </div>
                     {mesa.comanda_aberta && (
                       <button
                         onClick={() => {
