@@ -565,9 +565,13 @@ export function SalaoPage() {
 
     const groupedItems = [...groups.values()].map((group) => `
       <section class="person">
-        <h2>${escapePrintHtml(group.name)}</h2>
-        ${group.items.map((item) => `<div class="item"><span>${escapePrintHtml(item.quantidade)}x ${escapePrintHtml(item.nome_produto)}</span><strong>R$ ${formatMoney(item.preco_total)}</strong></div>`).join("")}
-        <div class="subtotal"><span>Total de ${escapePrintHtml(group.name)}</span><strong>R$ ${formatMoney(group.total)}</strong></div>
+        <p class="person-title">${escapePrintHtml(group.name)}</p>
+        ${group.items.map((item) => `
+          <div class="row"><span>${escapePrintHtml(item.quantidade)}x ${escapePrintHtml(item.nome_produto)}</span><span>R$ ${formatMoney(item.preco_total)}</span></div>
+          ${arrayOrEmpty<any>(item.selecoes).map((selection) => `<p class="option">${escapePrintHtml(selection.nome_grupo)}: ${escapePrintHtml(selection.nome_opcao)}</p>`).join("")}
+          ${item.observacoes ? `<p class="obs">Obs: ${escapePrintHtml(item.observacoes)}</p>` : ""}
+        `).join("")}
+        <div class="row subtotal"><span>Total de ${escapePrintHtml(group.name)}</span><span>R$ ${formatMoney(group.total)}</span></div>
       </section>
     `).join("");
     const total = arrayOrEmpty<any>(comanda.itens)
@@ -575,19 +579,28 @@ export function SalaoPage() {
       .reduce((sum, item) => sum + Number(item.preco_total || 0), 0);
     const splitPeople = Number(comanda.quantidade_pessoas_divisao || 1);
     const division = splitPeople > 1
-      ? `<div class="division">Divisão solicitada: <strong>${splitPeople} pessoas</strong><br>R$ ${formatMoney(total / splitPeople)} por pessoa</div>`
+      ? `<div class="divider"></div><div class="row"><span>Divisão (${splitPeople} pessoas)</span><span>R$ ${formatMoney(total / splitPeople)} por pessoa</span></div>`
       : "";
 
-    printWindow.document.write(`<!doctype html>
-      <html><head><title>Comanda ${escapePrintHtml(comanda.numero_comanda)}</title>
+    printWindow.document.write(`<!DOCTYPE html>
+      <html lang="pt-BR"><head><meta charset="UTF-8"><title>Comanda ${escapePrintHtml(comanda.numero_comanda)}</title>
       <style>
-        *{box-sizing:border-box} body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#111827;font-size:13px} h1{margin:0;font-size:22px} .meta{margin:6px 0 16px;color:#4b5563}.person{border-top:1px dashed #94a3b8;padding:12px 0}.person h2{margin:0 0 8px;font-size:15px}.item,.subtotal{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.subtotal{margin-top:7px;padding-top:7px;border-top:1px solid #d1d5db;font-weight:bold}.total{margin-top:14px;border-top:2px solid #111827;padding-top:10px;display:flex;justify-content:space-between;font-size:17px;font-weight:bold}.division{margin-top:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;line-height:1.5}@media print{body{padding:0}}
+        *{margin:0;padding:0;box-sizing:border-box} body{font-family:'Courier New',Courier,monospace;max-width:300px;margin:0 auto;padding:16px;font-size:12px;color:#000}.center{text-align:center}.bold{font-weight:bold}.large{font-size:15px}.divider-solid{border-top:1px solid #000;margin:8px 0}.divider{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px;margin-bottom:3px}.row-total{display:flex;justify-content:space-between;gap:8px;font-size:14px;font-weight:bold;margin-bottom:3px}.person{padding:8px 0}.person-title{font-weight:bold;margin-bottom:6px}.subtotal{margin-top:6px;font-weight:bold}.option{font-size:10px;margin:0 0 2px 16px}.obs{font-size:10px;color:#555;margin:0 0 5px 16px;font-style:italic}.tag{display:inline-block;border:1px solid #000;padding:1px 6px;font-size:11px;margin:2px 0}p{margin-bottom:4px}@media print{body{padding:0}}
       </style></head><body>
-        <h1>Comanda ${escapePrintHtml(comanda.numero_comanda)}</h1>
-        <div class="meta">Mesa ${escapePrintHtml(comanda.mesa?.numero || "-")} · ${new Date().toLocaleString("pt-BR")}</div>
+        <div class="center">
+          <p class="bold large">COMANDA DO SALÃO</p>
+          <p>Comanda: <span class="bold">${escapePrintHtml(comanda.numero_comanda)}</span></p>
+          <p>Data: ${new Date().toLocaleString("pt-BR")}</p>
+          <span class="tag">MESA ${escapePrintHtml(comanda.mesa?.numero || "-")}</span>
+        </div>
+        <div class="divider"></div>
+        <p class="bold">ITENS POR PARTICIPANTE:</p>
         ${groupedItems || '<p>Nenhum item lançado.</p>'}
-        <div class="total"><span>Total geral</span><strong>R$ ${formatMoney(total)}</strong></div>
+        <div class="divider-solid"></div>
+        <div class="row-total"><span>TOTAL GERAL</span><span>R$ ${formatMoney(total)}</span></div>
         ${division}
+        <div class="divider-solid"></div>
+        <div class="center"><p>Obrigado pela preferência!</p></div>
         <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};</script>
       </body></html>`);
     printWindow.document.close();
