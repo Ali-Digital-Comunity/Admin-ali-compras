@@ -85,6 +85,7 @@ export function SettingsScreen() {
     // Configurações
     permite_entrega: true,
     permite_retirada: true,
+    exigir_pin_confirmacao_entrega: true,
     tempo_medio_entrega_minutos: 30,
     whatsapp_suporte: "",
     cor_primaria: PRIMARY,
@@ -269,6 +270,7 @@ export function SettingsScreen() {
       const configData = {
         permite_entrega: formData.permite_entrega,
         permite_retirada: formData.permite_retirada,
+        exigir_pin_confirmacao_entrega: formData.exigir_pin_confirmacao_entrega,
         tempo_medio_entrega_minutos: Number(
           formData.tempo_medio_entrega_minutos,
         ),
@@ -892,6 +894,21 @@ export function SettingsScreen() {
                     </span>
                   </label>
                 </div>
+                <label className="sm:col-span-2 flex cursor-pointer items-start justify-between gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <span>
+                    <span className="block text-sm font-medium text-gray-800">Exigir PIN para confirmar a entrega</span>
+                    <span className="mt-1 block text-xs text-gray-500">
+                      Quando desativado, o entregador conclui a entrega sem informar o PIN. O código continua visível para o cliente.
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    name="exigir_pin_confirmacao_entrega"
+                    checked={formData.exigir_pin_confirmacao_entrega !== false}
+                    onChange={handleInputChange}
+                    className="mt-0.5 rounded"
+                  />
+                </label>
               </div>
             </div>
           )}

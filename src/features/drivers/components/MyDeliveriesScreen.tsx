@@ -32,6 +32,7 @@ export type DriverRoute = {
   status: 'planned' | 'in_progress' | 'completed' | 'canceled';
   routeName: string;
   optimized: boolean;
+  requiresReceiptKey?: boolean;
   neighborhoods: string[];
   totalStops: number;
   pendingCount: number;

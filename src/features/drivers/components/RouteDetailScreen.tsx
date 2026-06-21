@@ -276,9 +276,14 @@ export function RouteDetailScreen() {
               disabled={!!updating || allFinished}
               updating={updating === stop.id}
               onDelivered={() => {
-                setReceiptKeyFor(stop);
-                setReceiptKey('');
-                setReceiptKeyError(null);
+                if (route.requiresReceiptKey !== false) {
+                  setReceiptKeyFor(stop);
+                  setReceiptKey('');
+                  setReceiptKeyError(null);
+                  return;
+                }
+
+                updateStop(stop, 'delivered');
               }}
               onProblem={() => setProblemFor(stop)}
             />
