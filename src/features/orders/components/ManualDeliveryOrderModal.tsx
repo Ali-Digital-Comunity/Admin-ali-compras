@@ -1,32 +1,204 @@
-import { useEffect, useState } from "react";
-import { Loader2, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft, ArrowRight, Check, CreditCard, Loader2, MapPin,
+  Minus, Package, Plus, Search, ShoppingBasket, Trash2, UserRound, X,
+} from "lucide-react";
 import api from "@/shared/lib/api";
 
-const unwrap = (r: any) => r?.data?.data ?? r?.data;
-const list = (r: any) => { const d = unwrap(r); return Array.isArray(d) ? d : d?.data || []; };
-const errorMessage = (e: any) => e?.response?.data?.error?.message || e?.response?.data?.message || "Não foi possível concluir a operação.";
+const unwrap = (response: any) => response?.data?.data ?? response?.data;
+const list = (response: any) => {
+  const data = unwrap(response);
+  return Array.isArray(data) ? data : data?.data || [];
+};
+const apiError = (error: any) =>
+  error?.response?.data?.error?.message || error?.response?.data?.message || "Não foi possível concluir a operação.";
+const money = (value: any) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const effectivePrice = (item: any) => Number(item?.preco_promocional ?? item?.preco ?? 0);
+const STEPS = [
+  { id: 1, label: "Contato", icon: UserRound },
+  { id: 2, label: "Produtos", icon: ShoppingBasket },
+  { id: 3, label: "Endereço", icon: MapPin },
+  { id: 4, label: "Pagamento", icon: CreditCard },
+];
 
-export function ManualDeliveryOrderModal({ lojaId, onClose, onCreated }: { lojaId: string; onClose: () => void; onCreated: () => void }) {
-  const [step, setStep] = useState(1); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
-  const [customers, setCustomers] = useState<any[]>([]); const [query, setQuery] = useState(""); const [customer, setCustomer] = useState<any>(null);
-  const [quick, setQuick] = useState({ nome: "", telefone: "" }); const [products, setProducts] = useState<any[]>([]); const [lines, setLines] = useState<any[]>([]);
-  const [configuring, setConfiguring] = useState<any>(null); const [selectedVariation, setSelectedVariation] = useState(""); const [selectedOptions, setSelectedOptions] = useState<any[]>([]);
-  const [address, setAddress] = useState<any>({ rua:"", numero:"", bairro:"", cidade:"", estado:"", cep:"", complemento:"" });
-  const [payment, setPayment] = useState("dinheiro"); const [semTroco, setSemTroco] = useState(true); const [trocoPara, setTrocoPara] = useState("");
-  useEffect(() => { api.get("/produtos_loja", { params:{ ativo:true, per_page:100 } }).then(r => setProducts(list(r))).catch(() => setError("Não foi possível carregar o catálogo.")); }, []);
-  useEffect(() => { if (!query.trim()) return setCustomers([]); const t = setTimeout(() => api.get("/pedidos/admin-delivery/contacts", { params:{ busca:query } }).then(r => setCustomers(list(r))).catch(() => {}), 250); return () => clearTimeout(t); }, [query]);
-  const addProduct = async (p:any) => { setError(""); if (p.modo_compra !== "configuravel") { setLines(v => [...v, { client_line_id: crypto.randomUUID(), produto_loja_id:p.id, quantidade:1, selecoes:[], nome:p.nome, preco:p.preco ?? p.preco_promocional ?? 0 }]); return; } try { const config = unwrap(await api.get(`/produtos_loja/${p.id}/configuracao`)); setConfiguring(config); setSelectedVariation(config?.variacoes?.[0]?.id || ""); setSelectedOptions([]); } catch(e) { setError(errorMessage(e)); } };
-  const toggleOption = (group:any, option:any) => setSelectedOptions(current => { const exists = current.some(s => s.grupo_id === group.id && s.opcao_id === option.id); if (exists) return current.filter(s => !(s.grupo_id === group.id && s.opcao_id === option.id)); const groupItems = current.filter(s => s.grupo_id === group.id); if (group.tipo_selecao === "unica") return [...current.filter(s => s.grupo_id !== group.id), { grupo_id:group.id, opcao_id:option.id, quantidade:1 }]; const max = Number(group.maximo_selecoes || 99); return groupItems.length >= max ? current : [...current, { grupo_id:group.id, opcao_id:option.id, quantidade:1 }]; });
-  const saveConfiguredLine = () => { const product = configuring?.produto; if (!product) return; const variationRequired = configuring?.variacoes?.length > 0; if (variationRequired && !selectedVariation) return setError("Selecione uma variação."); for (const group of configuring?.grupos || []) { const count = selectedOptions.filter(s => s.grupo_id === group.id).length; if (count < Number(group.minimo_selecoes || 0)) return setError(`Selecione ao menos ${group.minimo_selecoes} opção(ões) em ${group.nome}.`); } setLines(v => [...v, { client_line_id:crypto.randomUUID(), produto_loja_id:product.id, variacao_produto_loja_id:selectedVariation || null, quantidade:1, selecoes:selectedOptions, nome:product.nome, preco:product.preco }]); setConfiguring(null); };
-  const createCustomer = async () => { setCustomer({ id: `quick-${Date.now()}`, ...quick, rapido: true }); setStep(2); };
-  const submit = async () => { if (!customer || !lines.length) return; setBusy(true); setError(""); try {
-    const geo = unwrap(await api.post("/geocoding", { street:address.rua, number:address.numero, neighborhood:address.bairro, city:address.cidade, state:address.estado, zipCode:address.cep, complement:address.complement, tenantId:lojaId, customerId:customer.id }));
-    await api.post("/pedidos/admin-delivery", { contato:{ nome:customer.nome, telefone:customer.telefone }, itens:lines.map(({ nome, preco, ...line }) => line), endereco:{ ...address, latitude:geo.latitude, longitude:geo.longitude, geocoding_provider:"google", geocoding_source:"manual_address", formatted_address:geo.formatted_address, google_place_id:geo.place_id }, pagamento:{ forma_pagamento:payment, sem_troco:semTroco, troco_para:semTroco ? undefined : Number(trocoPara) } });
-    onCreated(); onClose();
-  } catch(e) { setError(errorMessage(e)); } finally { setBusy(false); } };
-  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"><div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-bold">Criar pedido delivery</h2><p className="text-sm text-gray-500">Etapa {step} de 4</p></div><button onClick={onClose}><X /></button></div>{error && <div className="mb-4 rounded bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-  {step===1 && <div className="space-y-3"><input className="w-full rounded border p-2" placeholder="Buscar cliente por nome ou telefone" value={query} onChange={e=>setQuery(e.target.value)} />{customers.map(c=><button key={c.id} onClick={()=>{setCustomer(c);setStep(2)}} className="block w-full rounded border p-3 text-left"><b>{c.nome}</b><span className="ml-2 text-sm text-gray-500">{c.telefone}</span></button>)}<div className="border-t pt-4"><b>Novo cliente</b><div className="mt-2 grid gap-2 md:grid-cols-2"><input className="rounded border p-2" placeholder="Nome" value={quick.nome} onChange={e=>setQuick({...quick,nome:e.target.value})}/><input className="rounded border p-2" placeholder="Telefone" value={quick.telefone} onChange={e=>setQuick({...quick,telefone:e.target.value})}/></div><button disabled={!quick.nome||!quick.telefone||busy} onClick={createCustomer} className="mt-3 rounded bg-blue-600 px-4 py-2 text-white">Cadastrar e continuar</button></div></div>}
-  {step===2 && <div><p className="mb-3 text-sm">Cliente: <b>{customer?.nome}</b></p><div className="max-h-48 overflow-auto rounded border">{products.map(p=><button key={p.id} onClick={()=>addProduct(p)} className="flex w-full justify-between border-b p-2 text-left hover:bg-gray-50"><span>{p.nome}{p.modo_compra==='configuravel'?' · configurável':''}</span><Plus className="h-4"/></button>)}</div>{configuring&&<div className="mt-3 rounded border-2 border-blue-200 p-3"><div className="flex justify-between"><b>Configurar {configuring.produto?.nome}</b><button onClick={()=>setConfiguring(null)}><X className="h-4"/></button></div>{(configuring.variacoes||[]).length>0&&<label className="mt-3 block text-sm">Variação<select className="ml-2 border p-1" value={selectedVariation} onChange={e=>setSelectedVariation(e.target.value)}>{configuring.variacoes.map((v:any)=><option key={v.id} value={v.id}>{v.nome}</option>)}</select></label>}{(configuring.grupos||[]).map((g:any)=><div key={g.id} className="mt-3"><p className="text-sm font-semibold">{g.nome} <span className="font-normal text-gray-500">({g.minimo_selecoes}-{g.maximo_selecoes})</span></p><div className="mt-1 flex flex-wrap gap-2">{(g.opcoes||[]).map((o:any)=>{const checked=selectedOptions.some(s=>s.grupo_id===g.id&&s.opcao_id===o.id);return <label key={o.id} className={`cursor-pointer rounded border px-2 py-1 text-sm ${checked?'border-blue-600 bg-blue-50':''}`}><input className="mr-1" type={g.tipo_selecao==='unica'?'radio':'checkbox'} checked={checked} onChange={()=>toggleOption(g,o)}/>{o.nome}</label>})}</div></div>)}<button onClick={saveConfiguredLine} className="mt-4 rounded bg-blue-600 px-3 py-2 text-white">Adicionar configurado</button></div>}<div className="mt-3 space-y-2">{lines.map((l,i)=><div key={l.client_line_id} className="flex items-center gap-2 rounded border p-2"><span className="flex-1">{l.nome}{l.selecoes.length?` · ${l.selecoes.length} opção(ões)`:''}</span><input className="w-16 border p-1" type="number" min="1" value={l.quantidade} onChange={e=>setLines(lines.map((x,n)=>n===i?{...x,quantidade:Number(e.target.value)}:x))}/><button onClick={()=>setLines(lines.filter((_,n)=>n!==i))}><Trash2 className="h-4 text-red-600"/></button></div>)}</div><button disabled={!lines.length} onClick={()=>setStep(3)} className="mt-4 rounded bg-blue-600 px-4 py-2 text-white">Continuar</button></div>}
-  {step===3 && <div className="grid gap-2 md:grid-cols-2">{Object.entries(address).map(([k,v])=><input key={k} className="rounded border p-2" placeholder={k.replace('_',' ')} value={v as string} onChange={e=>setAddress({...address,[k]:e.target.value})}/>) }<button disabled={!address.rua||!address.numero||!address.bairro||!address.cidade||!address.estado} onClick={()=>setStep(4)} className="mt-3 rounded bg-blue-600 px-4 py-2 text-white">Continuar</button></div>}
-  {step===4 && <div className="space-y-3"><label className="block">Forma de pagamento<select className="ml-2 border p-2" value={payment} onChange={e=>setPayment(e.target.value)}><option value="dinheiro">Dinheiro na entrega</option></select></label><label className="flex gap-2"><input type="checkbox" checked={semTroco} onChange={e=>setSemTroco(e.target.checked)}/> Não precisa de troco</label>{!semTroco&&<input className="border p-2" placeholder="Troco para R$" value={trocoPara} onChange={e=>setTrocoPara(e.target.value)}/>}<button disabled={busy} onClick={submit} className="rounded bg-green-600 px-4 py-2 text-white">{busy?<Loader2 className="animate-spin"/>:"Criar pedido"}</button></div>}</div></div>
+export function ManualDeliveryOrderModal({ lojaId, onClose, onCreated }: {
+  lojaId: string; onClose: () => void; onCreated: () => void;
+}) {
+  const [step, setStep] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [contactQuery, setContactQuery] = useState("");
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contact, setContact] = useState<any>(null);
+  const [quick, setQuick] = useState({ nome: "", telefone: "" });
+  const [products, setProducts] = useState<any[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [lines, setLines] = useState<any[]>([]);
+  const [configuring, setConfiguring] = useState<any>(null);
+  const [selectedVariation, setSelectedVariation] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState<any[]>([]);
+  const [address, setAddress] = useState<any>({
+    rua: "", numero: "", bairro: "", cidade: "", estado: "", cep: "", complemento: "", ponto_referencia: "",
+  });
+  const [payment] = useState("dinheiro");
+  const [semTroco, setSemTroco] = useState(true);
+  const [trocoPara, setTrocoPara] = useState("");
+
+  useEffect(() => {
+    setCatalogLoading(true);
+    api.get("/produtos_loja", { params: { ativo: true, per_page: 100 } })
+      .then((response) => setProducts(list(response)))
+      .catch(() => setError("Não foi possível carregar o catálogo."))
+      .finally(() => setCatalogLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const search = contactQuery.trim();
+    if (!search) { setContacts([]); setContactLoading(false); return; }
+    setContactLoading(true);
+    const timer = window.setTimeout(() => {
+      api.get("/pedidos/admin-delivery/contacts", { params: { busca: search } })
+        .then((response) => setContacts(list(response)))
+        .catch(() => setContacts([]))
+        .finally(() => setContactLoading(false));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [contactQuery]);
+
+  const filteredProducts = useMemo(() => {
+    const search = productSearch.trim().toLocaleLowerCase("pt-BR");
+    if (!search) return products;
+    return products.filter((product) =>
+      [product.nome, product.codigo_interno, product.categoria_nome]
+        .some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(search))
+    );
+  }, [products, productSearch]);
+
+  const estimatedSubtotal = useMemo(() => lines.reduce(
+    (sum, line) => sum + Number(line.preco || 0) * Number(line.quantidade || 0), 0,
+  ), [lines]);
+
+  const chooseContact = (selected: any) => {
+    setContact(selected); setQuick({ nome: selected.nome, telefone: selected.telefone }); setError(""); setStep(2);
+  };
+  const createQuickContact = () => {
+    if (!quick.nome.trim() || quick.telefone.replace(/\D/g, "").length < 8) {
+      setError("Informe nome e telefone válidos."); return;
+    }
+    chooseContact({ id: `new-${Date.now()}`, ...quick, novo: true });
+  };
+
+  const addProduct = async (product: any) => {
+    setError("");
+    if (product.modo_compra !== "configuravel") {
+      setLines((current) => [...current, {
+        client_line_id: crypto.randomUUID(), produto_loja_id: product.id,
+        quantidade: 1, selecoes: [], nome: product.nome, preco: effectivePrice(product),
+      }]);
+      return;
+    }
+    setBusy(true);
+    try {
+      const config = unwrap(await api.get(`/produtos_loja/${product.id}/configuracao`));
+      setConfiguring(config);
+      setSelectedVariation(config?.variacoes?.[0]?.id || "");
+      setSelectedOptions([]);
+    } catch (caught) { setError(apiError(caught)); } finally { setBusy(false); }
+  };
+
+  const optionSelection = (groupId: string, optionId: string) =>
+    selectedOptions.find((selection) => selection.grupo_id === groupId && selection.opcao_id === optionId);
+  const toggleOption = (group: any, option: any) => setSelectedOptions((current) => {
+    const existing = current.find((selection) => selection.grupo_id === group.id && selection.opcao_id === option.id);
+    if (existing) return current.filter((selection) => selection !== existing);
+    if (group.tipo_selecao === "unica") {
+      return [...current.filter((selection) => selection.grupo_id !== group.id), { grupo_id: group.id, opcao_id: option.id, quantidade: 1 }];
+    }
+    const count = current.filter((selection) => selection.grupo_id === group.id)
+      .reduce((sum, selection) => sum + Number(selection.quantidade || 1), 0);
+    if (count >= Number(group.maximo_selecoes || 99)) return current;
+    return [...current, { grupo_id: group.id, opcao_id: option.id, quantidade: 1 }];
+  });
+  const changeOptionQuantity = (group: any, option: any, delta: number) => setSelectedOptions((current) => {
+    const selection = current.find((item) => item.grupo_id === group.id && item.opcao_id === option.id);
+    if (!selection) return current;
+    const next = Number(selection.quantidade || 1) + delta;
+    if (next < 1) return current.filter((item) => item !== selection);
+    const groupTotal = current.filter((item) => item.grupo_id === group.id)
+      .reduce((sum, item) => sum + Number(item.quantidade || 1), 0);
+    if (delta > 0 && groupTotal >= Number(group.maximo_selecoes || 99)) return current;
+    if (next > Number(option.quantidade_maxima || 99)) return current;
+    return current.map((item) => item === selection ? { ...item, quantidade: next } : item);
+  });
+  const saveConfiguredLine = () => {
+    const product = configuring?.produto;
+    if (!product) return;
+    if ((configuring.variacoes || []).length && !selectedVariation) { setError("Selecione uma variação."); return; }
+    for (const group of configuring.grupos || []) {
+      const count = selectedOptions.filter((selection) => selection.grupo_id === group.id)
+        .reduce((sum, selection) => sum + Number(selection.quantidade || 1), 0);
+      if (count < Number(group.minimo_selecoes || 0) || count > Number(group.maximo_selecoes || 99)) {
+        setError(`O grupo “${group.nome}” exige entre ${group.minimo_selecoes} e ${group.maximo_selecoes} seleções.`); return;
+      }
+    }
+    const variation = (configuring.variacoes || []).find((item: any) => item.id === selectedVariation);
+    setLines((current) => [...current, {
+      client_line_id: crypto.randomUUID(), produto_loja_id: product.id,
+      variacao_produto_loja_id: selectedVariation || null, quantidade: 1,
+      selecoes: selectedOptions, nome: product.nome,
+      detalhe: [variation?.nome, selectedOptions.length ? `${selectedOptions.length} opção(ões)` : ""].filter(Boolean).join(" · "),
+      preco: effectivePrice(variation) || effectivePrice(product),
+    }]);
+    setConfiguring(null); setSelectedOptions([]); setError("");
+  };
+  const changeLineQuantity = (index: number, delta: number) => setLines((current) => current
+    .map((line, currentIndex) => currentIndex === index ? { ...line, quantidade: Math.max(0, Number(line.quantidade) + delta) } : line)
+    .filter((line) => line.quantidade > 0));
+
+  const submit = async () => {
+    if (!contact || !lines.length) return;
+    setBusy(true); setError("");
+    try {
+      const geo = unwrap(await api.post("/geocode-address", {
+        street: address.rua, number: address.numero, neighborhood: address.bairro,
+        city: address.cidade, state: address.estado, zipCode: address.cep,
+        complement: address.complemento, tenantId: lojaId,
+      }));
+      await api.post("/pedidos/admin-delivery", {
+        contato: { nome: contact.nome, telefone: contact.telefone },
+        itens: lines.map(({ nome, detalhe, preco, ...line }) => line),
+        endereco: {
+          ...address, latitude: geo.latitude, longitude: geo.longitude,
+          geocoding_provider: geo.geocodingProvider, geocoding_source: geo.geocodingSource,
+          formatted_address: geo.formattedAddress, google_place_id: geo.placeId,
+        },
+        pagamento: { forma_pagamento: payment, sem_troco: semTroco, troco_para: semTroco ? undefined : Number(trocoPara.replace(",", ".")) },
+      });
+      onCreated(); onClose();
+    } catch (caught) { setError(apiError(caught)); } finally { setBusy(false); }
+  };
+
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-2 backdrop-blur-sm sm:p-5">
+    <div className="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <header className="border-b bg-white px-5 py-4 sm:px-7">
+        <div className="flex items-center justify-between"><div><h2 className="text-xl font-bold text-slate-900">Novo pedido delivery</h2><p className="text-sm text-slate-500">Pedido feito pelo atendimento da loja</p></div><button onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+        <div className="mt-5 grid grid-cols-4 gap-2">{STEPS.map((item) => { const Icon=item.icon; const active=item.id===step; const done=item.id<step; return <div key={item.id} className="flex items-center gap-2"><div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${done?'bg-emerald-600 text-white':active?'bg-blue-600 text-white':'bg-slate-100 text-slate-400'}`}>{done?<Check className="h-4 w-4"/>:<Icon className="h-4 w-4"/>}</div><span className={`hidden text-sm font-semibold sm:block ${active?'text-blue-700':'text-slate-500'}`}>{item.label}</span></div>})}</div>
+      </header>
+      <main className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-5 sm:p-7">
+        {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+
+        {step===1 && <div className="mx-auto max-w-2xl space-y-6"><section className="rounded-xl border bg-white p-5"><h3 className="font-bold text-slate-900">Localizar contato</h3><p className="mb-4 text-sm text-slate-500">Pesquise pelo nome ou número de telefone.</p><div className="relative"><Search className="absolute left-3 top-3 h-5 w-5 text-slate-400"/><input autoFocus value={contactQuery} onChange={(event)=>setContactQuery(event.target.value)} placeholder="Ex.: Maria ou (81) 99999-9999" className="w-full rounded-xl border py-2.5 pl-10 pr-10 outline-none focus:border-blue-500"/>{contactLoading&&<Loader2 className="absolute right-3 top-3 h-5 w-5 animate-spin text-blue-600"/>}</div>{contactQuery&&<div className="mt-3 overflow-hidden rounded-xl border">{contacts.length?contacts.map((item)=><button key={item.id} onClick={()=>chooseContact(item)} className="flex w-full items-center justify-between border-b bg-white p-3 text-left last:border-0 hover:bg-blue-50"><span><b className="block text-slate-800">{item.nome}</b><small className="text-slate-500">{item.telefone}</small></span><ArrowRight className="h-4 w-4 text-blue-600"/></button>):!contactLoading&&<p className="bg-white p-4 text-center text-sm text-slate-500">Nenhum contato encontrado.</p>}</div>}</section><section className="rounded-xl border bg-white p-5"><h3 className="font-bold text-slate-900">Cadastrar contato rápido</h3><p className="mb-4 text-sm text-slate-500">Será vinculado somente a esta loja.</p><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-slate-700">Nome<input value={quick.nome} onChange={(event)=>setQuick({...quick,nome:event.target.value})} className="mt-1 w-full rounded-lg border p-2.5" placeholder="Nome do cliente"/></label><label className="text-sm font-medium text-slate-700">Telefone<input value={quick.telefone} onChange={(event)=>setQuick({...quick,telefone:event.target.value})} className="mt-1 w-full rounded-lg border p-2.5" placeholder="(00) 00000-0000"/></label></div><button onClick={createQuickContact} className="mt-4 rounded-lg bg-blue-600 px-4 py-2.5 font-semibold text-white hover:bg-blue-700">Continuar com novo contato</button></section></div>}
+
+        {step===2 && <div className="grid gap-5 lg:grid-cols-[1fr_360px]"><section className="rounded-xl border bg-white p-4"><div className="mb-3"><h3 className="font-bold text-slate-900">Adicionar produtos</h3><p className="text-sm text-slate-500">Pesquise pelo nome, código ou categoria.</p></div><div className="relative mb-3"><Search className="absolute left-3 top-2.5 h-5 w-5 text-slate-400"/><input value={productSearch} onChange={(event)=>setProductSearch(event.target.value)} placeholder="Buscar produto pelo nome..." className="w-full rounded-lg border py-2 pl-10 pr-3"/></div><div className="max-h-[430px] overflow-y-auto rounded-lg border">{catalogLoading?<div className="flex justify-center p-8"><Loader2 className="animate-spin text-blue-600"/></div>:filteredProducts.length?filteredProducts.map((product)=><button key={product.id} onClick={()=>addProduct(product)} className="flex w-full items-center justify-between gap-3 border-b p-3 text-left last:border-0 hover:bg-blue-50"><span className="min-w-0"><b className="block truncate text-slate-800">{product.nome}</b><small className="text-slate-500">{product.modo_compra==='configuravel'?'Escolher tamanho e opções':money(effectivePrice(product))}</small></span><span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-700"><Plus className="h-4 w-4"/></span></button>):<p className="p-8 text-center text-sm text-slate-500">Nenhum produto encontrado.</p>}</div></section><aside className="rounded-xl border bg-white p-4"><div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">Resumo do pedido</h3><span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700">{lines.length} itens</span></div><p className="mb-3 text-sm text-slate-500">Contato: {contact?.nome}</p><div className="max-h-[360px] space-y-2 overflow-y-auto">{lines.length?lines.map((line,index)=><div key={line.client_line_id} className="rounded-lg border p-3"><div className="flex justify-between gap-2"><span><b className="block text-sm">{line.nome}</b>{line.detalhe&&<small className="text-slate-500">{line.detalhe}</small>}</span><button onClick={()=>setLines(lines.filter((_,current)=>current!==index))} className="text-red-500"><Trash2 className="h-4 w-4"/></button></div><div className="mt-2 flex items-center justify-between"><div className="flex items-center rounded-lg border"><button onClick={()=>changeLineQuantity(index,-1)} className="p-1.5"><Minus className="h-3 w-3"/></button><b className="w-7 text-center text-sm">{line.quantidade}</b><button onClick={()=>changeLineQuantity(index,1)} className="p-1.5"><Plus className="h-3 w-3"/></button></div><span className="text-sm font-semibold">{money(line.preco*line.quantidade)}</span></div></div>):<div className="py-10 text-center text-slate-400"><Package className="mx-auto mb-2 h-8 w-8"/><p className="text-sm">Adicione produtos ao pedido</p></div>}</div><div className="mt-4 flex justify-between border-t pt-3 font-bold"><span>Subtotal estimado</span><span>{money(estimatedSubtotal)}</span></div></aside></div>}
+
+        {step===3 && <div className="mx-auto max-w-3xl rounded-xl border bg-white p-5"><h3 className="font-bold text-slate-900">Endereço de entrega</h3><p className="mb-5 text-sm text-slate-500">Preencha o endereço; a localização será encontrada ao finalizar.</p><div className="grid gap-4 sm:grid-cols-6"><label className="text-sm font-medium sm:col-span-2">CEP<input value={address.cep} onChange={(e)=>setAddress({...address,cep:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label><label className="text-sm font-medium sm:col-span-4">Rua<input value={address.rua} onChange={(e)=>setAddress({...address,rua:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label><label className="text-sm font-medium sm:col-span-2">Número<input value={address.numero} onChange={(e)=>setAddress({...address,numero:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label><label className="text-sm font-medium sm:col-span-4">Complemento<input value={address.complemento} onChange={(e)=>setAddress({...address,complemento:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label><label className="text-sm font-medium sm:col-span-3">Bairro<input value={address.bairro} onChange={(e)=>setAddress({...address,bairro:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label><label className="text-sm font-medium sm:col-span-2">Cidade<input value={address.cidade} onChange={(e)=>setAddress({...address,cidade:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label><label className="text-sm font-medium sm:col-span-1">UF<input maxLength={2} value={address.estado} onChange={(e)=>setAddress({...address,estado:e.target.value.toUpperCase()})} className="mt-1 w-full rounded-lg border p-2.5 uppercase"/></label><label className="text-sm font-medium sm:col-span-6">Ponto de referência<input value={address.ponto_referencia} onChange={(e)=>setAddress({...address,ponto_referencia:e.target.value})} className="mt-1 w-full rounded-lg border p-2.5"/></label></div></div>}
+
+        {step===4 && <div className="mx-auto grid max-w-3xl gap-5 md:grid-cols-2"><section className="rounded-xl border bg-white p-5"><h3 className="font-bold">Pagamento</h3><div className="mt-4 rounded-xl border-2 border-blue-500 bg-blue-50 p-4"><div className="flex items-center gap-3"><CreditCard className="text-blue-700"/><span><b className="block">Dinheiro na entrega</b><small className="text-slate-500">Pagamento fica pendente até a entrega</small></span></div></div><label className="mt-4 flex cursor-pointer items-center gap-2 text-sm"><input type="checkbox" checked={semTroco} onChange={(e)=>setSemTroco(e.target.checked)} className="h-4 w-4"/> Não precisa de troco</label>{!semTroco&&<label className="mt-3 block text-sm font-medium">Troco para<input value={trocoPara} onChange={(e)=>setTrocoPara(e.target.value)} placeholder="0,00" inputMode="decimal" className="mt-1 w-full rounded-lg border p-2.5"/></label>}</section><section className="rounded-xl border bg-white p-5"><h3 className="font-bold">Conferência</h3><dl className="mt-4 space-y-3 text-sm"><div className="flex justify-between"><dt>Contato</dt><dd className="font-semibold">{contact?.nome}</dd></div><div className="flex justify-between"><dt>Telefone</dt><dd>{contact?.telefone}</dd></div><div className="flex justify-between"><dt>Produtos</dt><dd>{lines.length}</dd></div><div className="flex justify-between"><dt>Entrega</dt><dd className="max-w-[190px] text-right">{address.rua}, {address.numero}</dd></div><div className="flex justify-between border-t pt-3 text-base font-bold"><dt>Subtotal estimado</dt><dd>{money(estimatedSubtotal)}</dd></div></dl></section></div>}
+      </main>
+      <footer className="flex items-center justify-between border-t bg-white px-5 py-4 sm:px-7"><button disabled={step===1||busy} onClick={()=>{setError("");setStep(step-1)}} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 font-semibold text-slate-700 disabled:opacity-40"><ArrowLeft className="h-4 w-4"/> Voltar</button>{step<4?<button disabled={(step===2&&!lines.length)||(step===3&&(!address.rua||!address.numero||!address.bairro||!address.cidade||!address.estado))} onClick={()=>{setError("");setStep(step+1)}} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white disabled:opacity-40">Continuar <ArrowRight className="h-4 w-4"/></button>:<button disabled={busy||(!semTroco&&!trocoPara)} onClick={submit} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">{busy?<Loader2 className="h-4 w-4 animate-spin"/>:<Check className="h-4 w-4"/>} Criar pedido</button>}</footer>
+    </div>
+    {configuring&&<div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/50 p-3"><div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"><div className="flex justify-between border-b pb-4"><div><h3 className="text-lg font-bold">Configurar {configuring.produto?.nome}</h3><p className="text-sm text-slate-500">Escolha variação e opções obrigatórias.</p></div><button onClick={()=>setConfiguring(null)}><X/></button></div>{(configuring.variacoes||[]).length>0&&<div className="mt-5"><p className="mb-2 text-sm font-bold">Variação</p><div className="grid gap-2 sm:grid-cols-2">{configuring.variacoes.map((variation:any)=><button key={variation.id} onClick={()=>setSelectedVariation(variation.id)} className={`rounded-xl border-2 p-3 text-left ${selectedVariation===variation.id?'border-blue-600 bg-blue-50':'border-slate-200'}`}><b>{variation.nome}</b><span className="float-right text-sm">{money(effectivePrice(variation))}</span></button>)}</div></div>}{(configuring.grupos||[]).map((group:any)=>{const count=selectedOptions.filter(item=>item.grupo_id===group.id).reduce((sum,item)=>sum+Number(item.quantidade||1),0);return <section key={group.id} className="mt-5"><div className="flex justify-between"><p className="font-bold">{group.nome}</p><span className={`rounded-full px-2 py-0.5 text-xs ${count>=Number(group.minimo_selecoes||0)?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>{count}/{group.maximo_selecoes}</span></div><p className="mb-2 text-xs text-slate-500">Escolha de {group.minimo_selecoes} até {group.maximo_selecoes}</p><div className="space-y-2">{(group.opcoes||[]).map((option:any)=>{const selected=optionSelection(group.id,option.id);return <div key={option.id} className={`flex items-center justify-between rounded-xl border p-3 ${selected?'border-blue-500 bg-blue-50':''}`}><button onClick={()=>toggleOption(group,option)} className="flex flex-1 items-center gap-3 text-left"><span className={`h-5 w-5 rounded-${group.tipo_selecao==='unica'?'full':'md'} border-2 ${selected?'border-blue-600 bg-blue-600 shadow-[inset_0_0_0_3px_white]':''}`}/><span><b className="block text-sm">{option.nome}</b>{Number(option.preco_adicional||0)>0&&<small className="text-slate-500">+ {money(option.preco_adicional)}</small>}</span></button>{selected&&group.permite_quantidade&&<div className="flex items-center rounded-lg border bg-white"><button onClick={()=>changeOptionQuantity(group,option,-1)} className="p-1.5"><Minus className="h-3 w-3"/></button><b className="w-7 text-center text-sm">{selected.quantidade}</b><button onClick={()=>changeOptionQuantity(group,option,1)} className="p-1.5"><Plus className="h-3 w-3"/></button></div>}</div>})}</div></section>})}<div className="mt-6 flex justify-end gap-2 border-t pt-4"><button onClick={()=>setConfiguring(null)} className="rounded-lg border px-4 py-2">Cancelar</button><button onClick={saveConfiguredLine} className="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">Adicionar ao pedido</button></div></div></div>}
+  </div>;
 }
