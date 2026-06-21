@@ -338,6 +338,7 @@ export function SalaoPage() {
     // A list/table response is a summary and does not carry the participant list.
     // Clear it before fetching the detail to avoid rendering summary-only fields as details.
     setSelectedComanda(null);
+    setLatestPin("");
     try {
       const detail = await salaoService.getComanda(comanda.id);
       setSelectedComanda(detail);
@@ -860,7 +861,7 @@ export function SalaoPage() {
                           <KeyRound className="h-4 w-4" />
                           PIN da sessão
                         </div>
-                        <div className="text-xl font-semibold tracking-widest text-gray-950 sm:text-2xl">{latestPin || selectedComanda.pin || "----"}</div>
+                        <div className="text-xl font-semibold tracking-widest text-gray-950 sm:text-2xl">{latestPin || selectedComanda.pin_atual || selectedComanda.pin || "----"}</div>
                         <button
                           onClick={() => void regeneratePin(selectedComanda)}
                           disabled={!["aberta", "aguardando_conta"].includes(selectedComanda.status)}
