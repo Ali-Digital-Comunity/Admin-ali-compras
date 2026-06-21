@@ -108,6 +108,14 @@ const arrayOrEmpty = <T,>(value: unknown): T[] =>
 const formatMoney = (value: unknown) =>
   Number(value || 0).toFixed(2).replace(".", ",");
 
+const escapePrintHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
 const productName = (product: any) =>
   product?.nome || product?.produto?.nome || "Produto";
 
@@ -533,6 +541,58 @@ export function SalaoPage() {
     }
   };
 
+  const printSalaoComanda = (comanda: any) => {
+    const printWindow = window.open("", "_blank", "width=420,height=650");
+    if (!printWindow) {
+      showSystemNotice("Não foi possível abrir a janela de impressão. Verifique se o navegador bloqueou pop-ups.");
+      return;
+    }
+
+    const participants = arrayOrEmpty<any>(comanda.participantes);
+    const participantNames = new Map(participants.map((participant) => [participant.id, participant.nome_snapshot || participant.nome || "Cliente"]));
+    const groups = new Map<string, { name: string; items: any[]; total: number }>();
+    for (const item of arrayOrEmpty<any>(comanda.itens).filter((item) => item.status !== "cancelado")) {
+      const key = item.participante_id || "atendimento";
+      const group = groups.get(key) || {
+        name: participantNames.get(key) || item.adicionado_por || "Atendimento",
+        items: [],
+        total: 0,
+      };
+      group.items.push(item);
+      group.total += Number(item.preco_total || 0);
+      groups.set(key, group);
+    }
+
+    const groupedItems = [...groups.values()].map((group) => `
+      <section class="person">
+        <h2>${escapePrintHtml(group.name)}</h2>
+        ${group.items.map((item) => `<div class="item"><span>${escapePrintHtml(item.quantidade)}x ${escapePrintHtml(item.nome_produto)}</span><strong>R$ ${formatMoney(item.preco_total)}</strong></div>`).join("")}
+        <div class="subtotal"><span>Total de ${escapePrintHtml(group.name)}</span><strong>R$ ${formatMoney(group.total)}</strong></div>
+      </section>
+    `).join("");
+    const total = arrayOrEmpty<any>(comanda.itens)
+      .filter((item) => item.status !== "cancelado")
+      .reduce((sum, item) => sum + Number(item.preco_total || 0), 0);
+    const splitPeople = Number(comanda.quantidade_pessoas_divisao || 1);
+    const division = splitPeople > 1
+      ? `<div class="division">Divisão solicitada: <strong>${splitPeople} pessoas</strong><br>R$ ${formatMoney(total / splitPeople)} por pessoa</div>`
+      : "";
+
+    printWindow.document.write(`<!doctype html>
+      <html><head><title>Comanda ${escapePrintHtml(comanda.numero_comanda)}</title>
+      <style>
+        *{box-sizing:border-box} body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#111827;font-size:13px} h1{margin:0;font-size:22px} .meta{margin:6px 0 16px;color:#4b5563}.person{border-top:1px dashed #94a3b8;padding:12px 0}.person h2{margin:0 0 8px;font-size:15px}.item,.subtotal{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.subtotal{margin-top:7px;padding-top:7px;border-top:1px solid #d1d5db;font-weight:bold}.total{margin-top:14px;border-top:2px solid #111827;padding-top:10px;display:flex;justify-content:space-between;font-size:17px;font-weight:bold}.division{margin-top:12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;line-height:1.5}@media print{body{padding:0}}
+      </style></head><body>
+        <h1>Comanda ${escapePrintHtml(comanda.numero_comanda)}</h1>
+        <div class="meta">Mesa ${escapePrintHtml(comanda.mesa?.numero || "-")} · ${new Date().toLocaleString("pt-BR")}</div>
+        ${groupedItems || '<p>Nenhum item lançado.</p>'}
+        <div class="total"><span>Total geral</span><strong>R$ ${formatMoney(total)}</strong></div>
+        ${division}
+        <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};</script>
+      </body></html>`);
+    printWindow.document.close();
+  };
+
   const filteredProducts = products.filter((product) =>
     productName(product).toLowerCase().includes(productSearch.trim().toLowerCase()),
   );
@@ -845,6 +905,13 @@ export function SalaoPage() {
                     </div>
 
                     <div className={comandaModule === "pedidos" ? "mt-3 grid gap-2 sm:mt-5 sm:flex sm:flex-wrap" : "hidden"}>
+                      <button
+                        onClick={() => printSalaoComanda(selectedComanda)}
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 sm:min-h-12 sm:px-4 sm:text-sm"
+                      >
+                        <Printer className="h-4 w-4" />
+                        Imprimir comanda
+                      </button>
                       <button
                         onClick={() => void closeAccount(selectedComanda)}
                         disabled={(selectedComanda.itens || []).length === 0 || selectedComanda.status === "fechada" || actionBusy === `close-${selectedComanda.id}`}
