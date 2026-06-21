@@ -2,7 +2,7 @@ import api from "@/shared/lib/api";
 import type { ProductConfiguration, ProductStorePayload } from "../types/product";
 
 const STORE_PRODUCTS_CACHE_PREFIX = "admin-store-products:v1:";
-const ACTIVE_CATEGORIES_CACHE_PREFIX = "admin-active-categories:v4:";
+const ACTIVE_CATEGORIES_CACHE_PREFIX = "admin-active-categories:v5:";
 const CACHE_MAX_AGE = 5 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
@@ -174,7 +174,7 @@ export const productsService = {
     if (cached) return cached;
 
     const firstResponse = await api.get("/categorias", {
-      params: { ativa: true, page: 1, per_page: 100 },
+      params: { page: 1, per_page: 100 },
     });
     const firstData = firstResponse.data?.data;
     const totalPages = firstData?.total_pages || 1;
@@ -182,7 +182,7 @@ export const productsService = {
       ? await Promise.all(
           Array.from({ length: totalPages - 1 }, (_, index) =>
             api.get("/categorias", {
-              params: { ativa: true, page: index + 2, per_page: 100 },
+              params: { page: index + 2, per_page: 100 },
             }),
           ),
         )
@@ -193,14 +193,34 @@ export const productsService = {
     ];
 
     const categoriesById = new Map(categories.map((category) => [category.id, category]));
+    const normalizeCategoryText = (value: unknown) => String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+    const categoriesByPath = new Map(
+      categories.map((category) => [normalizeCategoryText(category.caminho), category]),
+    );
     const usedCategoryIds = new Set<string>();
     const storeProducts = await this.getAllStoreProducts();
 
     storeProducts.forEach((product) => {
-      if (product.produto_ativo === false) return;
-
-      const categoryId = product.categoria_final_id || product.categoria_id;
+      const categoryId = product.categoria_final_id
+        || product.categoria_id
+        || product.produto_categoria_id;
+      const categoryPath = normalizeCategoryText(product.categoria_caminho);
+      const categoryName = normalizeCategoryText(product.categoria_nome);
       let category = categoryId ? categoriesById.get(categoryId) : null;
+
+      if (!category && categoryPath) {
+        category = categoriesByPath.get(categoryPath);
+      }
+
+      if (!category && categoryName) {
+        category = categories.find((candidate) => (
+          normalizeCategoryText(candidate.nome) === categoryName
+        ));
+      }
 
       while (category) {
         if (usedCategoryIds.has(category.id)) break;
