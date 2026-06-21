@@ -141,6 +141,22 @@ const formatCashChangeInfo = (payment: any) => {
 const canOrderProceedForFulfillment = (order: any, payments: any[] = []) =>
   isOrderPaid(order, payments) || isOrderPendingCash(order, payments);
 const REFUND_ACTIVE_STATUSES = new Set(["pendente", "processando", "aprovado"]);
+const ORDER_TABS = [
+  { value: "Entrega", label: "Delivery" },
+  { value: "Retirada", label: "Retirada" },
+  { value: "Salao", label: "Salão" },
+] as const;
+type OrderTab = (typeof ORDER_TABS)[number]["value"];
+type OrderType = "entrega" | "retirada" | "salao";
+const getOrderType = (order: any): OrderType => {
+  const type = String(order?.tipo_pedido || order?.type || "").toLowerCase();
+  return type === "salao" || type === "retirada" ? type : "entrega";
+};
+const getOrderTypeLabel = (order: any) => ({
+  entrega: "Entrega",
+  retirada: "Retirada",
+  salao: "Salão",
+})[getOrderType(order)];
 
 export function OrdersScreen() {
   const [searchParams] = useSearchParams();
@@ -148,7 +164,7 @@ export function OrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
-  const [typeFilter, setTypeFilter] = useState("Todos");
+  const [typeFilter, setTypeFilter] = useState<OrderTab>("Entrega");
   const [bairroFilter, setBairroFilter] = useState("Todos");
   const [selected, setSelected] = useState<any | null>(null);
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
@@ -203,10 +219,16 @@ export function OrdersScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
   const [manualOrderEnabled, setManualOrderEnabled] = useState(false);
-  const [newOrdersCount, setNewOrdersCount] = useState(0);
-  const [lastOrdersLoadedAt, setLastOrdersLoadedAt] = useState<string | null>(
-    null,
-  );
+  const [salaoEnabled, setSalaoEnabled] = useState(false);
+  const [newOrdersCount, setNewOrdersCount] = useState<Record<OrderType, number>>({
+    entrega: 0,
+    retirada: 0,
+    salao: 0,
+  });
+  const [lastOrdersLoadedAt, setLastOrdersLoadedAt] = useState<Record<OrderType, string>>(() => {
+    const mountedAt = new Date().toISOString();
+    return { entrega: mountedAt, retirada: mountedAt, salao: mountedAt };
+  });
   const [checkingNewOrders, setCheckingNewOrders] = useState(false);
   const [archivedStartDate, setArchivedStartDate] = useState("");
   const [archivedEndDate, setArchivedEndDate] = useState("");
@@ -240,9 +262,19 @@ export function OrdersScreen() {
 
   useEffect(() => {
     if (!user?.loja_id) return;
-    api.get(`/lojas/${user.loja_id}/configuracoes`)
-      .then((response) => setManualOrderEnabled((response.data?.data ?? response.data)?.permitir_criacao_pedidos_delivery_admin === true))
-      .catch(() => setManualOrderEnabled(false));
+    Promise.allSettled([
+      api.get(`/lojas/${user.loja_id}/configuracoes`),
+      api.get(`/salao/lojas/${user.loja_id}/modulos`),
+    ]).then(([configResult, modulesResult]) => {
+      const config = configResult.status === "fulfilled"
+        ? (configResult.value.data?.data ?? configResult.value.data)
+        : {};
+      const modules = modulesResult.status === "fulfilled"
+        ? (modulesResult.value.data?.data ?? modulesResult.value.data)
+        : [];
+      setManualOrderEnabled(config?.permitir_criacao_pedidos_delivery_admin === true);
+      setSalaoEnabled(Array.isArray(modules) && modules.some((module: any) => module.slug === "salao" && module.enabled === true));
+    });
   }, [user?.loja_id]);
 
   useEffect(() => {
@@ -282,7 +314,7 @@ export function OrdersScreen() {
   }, [user?.loja_id]);
 
   useEffect(() => {
-    if (viewMode === "bairros" && typeFilter === "Retirada") {
+    if (viewMode === "bairros" && typeFilter !== "Entrega") {
       setTypeFilter("Entrega");
     }
   }, [viewMode, typeFilter]);
@@ -330,10 +362,7 @@ export function OrdersScreen() {
     per_page: PER_PAGE,
     arquivado: viewMode === "arquivados" ? "true" : "false",
     status: frontendToBackendStatus[statusFilter],
-    tipo_pedido:
-      viewMode === "arquivados" || typeFilter === "Todos"
-        ? undefined
-        : typeFilter.toLowerCase(),
+    tipo_pedido: typeFilter.toLowerCase(),
     busca: search || undefined,
     realizado_em_inicial:
       viewMode === "arquivados" ? archivedStartDate || undefined : undefined,
@@ -341,15 +370,10 @@ export function OrdersScreen() {
       viewMode === "arquivados" ? archivedEndDate || undefined : undefined,
   });
 
-  const getNewOrdersQueryParams = () => ({
-    ...getOrderQueryParams(1),
-    page: undefined,
-    per_page: undefined,
-    criado_apos: lastOrdersLoadedAt || undefined,
-    bairro:
-      viewMode === "bairros" && bairroFilter !== "Todos"
-        ? bairroFilter
-        : undefined,
+  const getNewOrdersQueryParams = (type: OrderType) => ({
+    tipo_pedido: type,
+    arquivado: "false",
+    criado_apos: lastOrdersLoadedAt[type],
   });
 
   const fetchOrders = async (
@@ -385,10 +409,12 @@ export function OrdersScreen() {
       );
       setPage(pageNum);
       if (reset) {
-        setLastOrdersLoadedAt(
-          rawData?.latest_created_at || new Date().toISOString(),
-        );
-        setNewOrdersCount(0);
+        const activeType = typeFilter.toLowerCase() as OrderType;
+        setLastOrdersLoadedAt((current) => ({
+          ...current,
+          [activeType]: rawData?.latest_created_at || new Date().toISOString(),
+        }));
+        setNewOrdersCount((current) => ({ ...current, [activeType]: 0 }));
       }
     } catch (error) {
       console.error("Error fetching orders:", error);
@@ -398,17 +424,24 @@ export function OrdersScreen() {
   };
 
   const checkNewOrders = async () => {
-    if (!lastOrdersLoadedAt) return;
-
     try {
       setCheckingNewOrders(true);
-      const response = await api.get("/pedidos/novos/contagem", {
-        params: getNewOrdersQueryParams(),
-      });
-      const count = Number(
-        response.data?.data?.count ?? response.data?.count ?? 0,
+      const types: OrderType[] = salaoEnabled
+        ? ["entrega", "retirada", "salao"]
+        : ["entrega", "retirada"];
+      const responses = await Promise.all(
+        types.map((type) => api.get("/pedidos/novos/contagem", {
+          params: getNewOrdersQueryParams(type),
+        })),
       );
-      setNewOrdersCount(Number.isFinite(count) ? count : 0);
+      setNewOrdersCount((current) => {
+        const next = { ...current };
+        types.forEach((type, index) => {
+          const count = Number(responses[index].data?.data?.count ?? responses[index].data?.count ?? 0);
+          next[type] = Number.isFinite(count) ? count : 0;
+        });
+        return next;
+      });
     } catch (error) {
       console.error("Error checking new orders:", error);
     } finally {
@@ -429,15 +462,8 @@ export function OrdersScreen() {
     search,
     viewMode,
     lastOrdersLoadedAt,
+    salaoEnabled,
   ]);
-
-  const handleRefreshNewOrders = async () => {
-    if (newOrdersCount <= 0) return;
-
-    setOrders([]);
-    setPage(1);
-    await Promise.all([fetchOrders(1, true), fetchAuxiliaryData()]);
-  };
 
   const handleLoadMore = () => {
     fetchOrders(page + 1);
@@ -1309,15 +1335,11 @@ export function OrdersScreen() {
       : [
           search,
           statusFilter !== "Todos",
-          typeFilter !== "Todos",
           bairroFilter !== "Todos",
         ].filter(Boolean).length;
-  const newOrdersLabel =
-    newOrdersCount === 0
-      ? "Nenhum pedido novo"
-      : newOrdersCount === 1
-        ? "1 novo pedido"
-        : `${newOrdersCount} novos pedidos`;
+  const availableOrderTabs = ORDER_TABS.filter(
+    (tab) => tab.value !== "Salao" || salaoEnabled,
+  );
   const selectedPayment = getPreferredOrderPayment(selected, selectedPayments);
   const selectedIsPaid = isOrderPaid(selected, selectedPayments);
   const selectedIsPendingCash = isOrderPendingCash(selected, selectedPayments);
@@ -1393,7 +1415,8 @@ export function OrdersScreen() {
   const selectedIsDelivery =
     String(selected?.tipo_pedido || selected?.type || "").toLowerCase() ===
     "entrega";
-  const selectedIsPickup = Boolean(selected) && !selectedIsDelivery;
+  const selectedIsPickup = Boolean(selected) && getOrderType(selected) === "retirada";
+  const selectedIsSalao = Boolean(selected) && getOrderType(selected) === "salao";
   const selectedStatusLabel = selected ? getStatusLabel(selected.status) : "";
   const adminCannotDispatchDelivery =
     selectedIsDelivery && selectedStatusLabel === "Pronto";
@@ -1639,10 +1662,56 @@ export function OrdersScreen() {
       <div
         className={`flex flex-col ${selected ? "hidden lg:flex lg:w-1/2 xl:w-3/5" : "flex-1"}`}
       >
+        <div className="border-b border-gray-200 bg-white px-4 pt-2">
+          <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Tipos de pedido">
+            {availableOrderTabs.map((tab) => {
+              const active = typeFilter === tab.value;
+              const type = tab.value.toLowerCase() as OrderType;
+              const count = newOrdersCount[type];
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => {
+                    if (tab.value !== "Entrega") {
+                      setBairroFilter("Todos");
+                      if (viewMode === "bairros") setViewMode("lista");
+                    }
+                    if (active && count > 0) {
+                      setOrders([]);
+                      setPage(1);
+                      void Promise.all([fetchOrders(1, true), fetchAuxiliaryData()]);
+                    } else {
+                      setTypeFilter(tab.value);
+                    }
+                  }}
+                  className={`relative inline-flex min-w-24 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${active ? "text-gray-900" : "border-transparent text-gray-500 hover:text-gray-800"}`}
+                  style={active ? { borderBottomColor: primaryColor, color: primaryColor } : undefined}
+                >
+                  {tab.label}
+                  {count > 0 && (
+                    <span
+                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                      style={{ backgroundColor: primaryColor }}
+                      title={`${count} pedido${count === 1 ? " novo" : "s novos"}`}
+                    >
+                      {count > 99 ? "99+" : count}
+                    </span>
+                  )}
+                  {active && checkingNewOrders && (
+                    <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-gray-300" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {/* Filters bar */}
         <div className="relative bg-white border-b border-gray-200 px-4 py-2">
           <div className="flex items-center justify-between gap-3">
-            {manualOrderEnabled && <button type="button" onClick={() => setManualOrderOpen(true)} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white">+ Criar pedido</button>}
+            {manualOrderEnabled && typeFilter !== "Salao" && <button type="button" onClick={() => setManualOrderOpen(true)} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white">+ Criar pedido</button>}
             <button
               type="button"
               onClick={() => setFiltersOpen((open) => !open)}
@@ -1675,17 +1744,19 @@ export function OrdersScreen() {
               >
                 <List className="w-3.5 h-3.5" /> Lista
               </button>
-              <button
-                onClick={() => setViewMode("bairros")}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                style={
-                  viewMode === "bairros"
-                    ? { backgroundColor: PRIMARY, color: "white" }
-                    : { color: "#6b7280" }
-                }
-              >
-                <MapIcon className="w-3.5 h-3.5" /> Por bairro
-              </button>
+              {typeFilter === "Entrega" && (
+                <button
+                  onClick={() => setViewMode("bairros")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                  style={
+                    viewMode === "bairros"
+                      ? { backgroundColor: PRIMARY, color: "white" }
+                      : { color: "#6b7280" }
+                  }
+                >
+                  <MapIcon className="w-3.5 h-3.5" /> Por bairro
+                </button>
+              )}
               <button
                 onClick={() => setViewMode("arquivados")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
@@ -1715,9 +1786,6 @@ export function OrdersScreen() {
                         setArchivedStartDate("");
                         setArchivedEndDate("");
                       } else {
-                        setTypeFilter(
-                          viewMode === "bairros" ? "Entrega" : "Todos",
-                        );
                         setBairroFilter("Todos");
                       }
                     }}
@@ -1760,28 +1828,6 @@ export function OrdersScreen() {
                     ))}
                   </select>
                 </div>
-
-                {viewMode !== "arquivados" && (
-                  <div>
-                    <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
-                      Tipo
-                    </label>
-                    <select
-                      value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
-                    >
-                      {(viewMode === "bairros"
-                        ? ["Entrega"]
-                        : ["Todos", "Entrega", "Retirada"]
-                      ).map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 {viewMode === "arquivados" && (
                   <>
@@ -1885,27 +1931,6 @@ export function OrdersScreen() {
           )}
         </div>
 
-        <div className="px-4 py-3 bg-white border-b border-gray-100">
-          <button
-            type="button"
-            disabled={newOrdersCount === 0}
-            onClick={handleRefreshNewOrders}
-            className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-all sm:w-auto ${
-              newOrdersCount > 0
-                ? "border-transparent text-white shadow-sm animate-pulse"
-                : "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
-            }`}
-            style={
-              newOrdersCount > 0 ? { backgroundColor: PRIMARY } : undefined
-            }
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${checkingNewOrders && newOrdersCount > 0 ? "animate-spin" : ""}`}
-            />
-            {newOrdersLabel}
-          </button>
-        </div>
-
         {/* ── LISTA VIEW ─────────────────────────────── */}
         {(viewMode === "lista" || viewMode === "arquivados") && (
           <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 space-y-4">
@@ -2007,7 +2032,7 @@ export function OrdersScreen() {
                                   {statusDisplay}
                                 </span>
                                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                                  {isEntrega ? "Entrega" : "Retirada"}
+                                  {getOrderTypeLabel(order)}
                                 </span>
                                 {viewMode === "arquivados" && (
                                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
@@ -2701,10 +2726,7 @@ export function OrdersScreen() {
                     new Date(),
                 )}{" "}
                 ·{" "}
-                {(selected.tipo_pedido || selected.type || "").toUpperCase() ===
-                "ENTREGA"
-                  ? "Entrega"
-                  : "Retirada"}
+                {getOrderTypeLabel(selected)}
               </div>
               {selected.agendado_para && (
                 <div className="text-xs text-amber-700 mt-1">
@@ -2960,7 +2982,7 @@ export function OrdersScreen() {
                   </div>
                 ) : (
                   <div className="flex justify-between text-sm text-gray-500">
-                    <span>Retirada na loja</span>
+                    <span>{selectedIsSalao ? "Consumo no salão" : "Retirada na loja"}</span>
                     <span className="text-green-600">Grátis</span>
                   </div>
                 )}
@@ -3208,7 +3230,9 @@ export function OrdersScreen() {
                             ""
                           ).toLowerCase() === "retirada"
                             ? "Confirmar Retirada"
-                            : "")}
+                            : selectedIsSalao
+                              ? "Concluir pedido"
+                              : "")}
                         {getStatusLabel(selected.status) ===
                           "Saiu para Entrega" && "Confirmar Entrega"}
                       </>

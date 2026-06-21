@@ -49,6 +49,7 @@ const superAdminItems = [
 export function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [storeName, setStoreName] = useState('Carregando...');
+  const [salaoEnabled, setSalaoEnabled] = useState<boolean | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
@@ -75,11 +76,24 @@ export function AdminLayout() {
   
   useEffect(() => {
     if (user?.loja_id) {
-      api.get(`/lojas/${user.loja_id}`).then(res => {
-        if (res.data?.success) setStoreName(res.data.data.nome);
-      }).catch(() => setStoreName('Minha Loja'));
+      Promise.allSettled([
+        api.get(`/lojas/${user.loja_id}`),
+        api.get(`/salao/lojas/${user.loja_id}/modulos`),
+      ]).then(([storeResult, modulesResult]) => {
+        if (storeResult.status === 'fulfilled' && storeResult.value.data?.success) {
+          setStoreName(storeResult.value.data.data.nome);
+        } else {
+          setStoreName('Minha Loja');
+        }
+
+        const modules = modulesResult.status === 'fulfilled'
+          ? (modulesResult.value.data?.data ?? modulesResult.value.data)
+          : [];
+        setSalaoEnabled(Array.isArray(modules) && modules.some(module => module.slug === 'salao' && module.enabled === true));
+      });
     } else {
       setStoreName('Admin Master');
+      setSalaoEnabled(false);
     }
   }, [user?.loja_id]);
 
@@ -148,6 +162,7 @@ export function AdminLayout() {
     if (user?.perfil === 'entregador') return item.path === '/driver';
     // Hide "Minhas Entregas" from non-drivers to keep sidebar clean
     if (item.path === '/driver') return false;
+    if (item.path === '/salao' && salaoEnabled !== true) return false;
     if (user?.perfil === 'superadmin' || user?.perfil === 'administrador') return true;
     return user?.permissions?.includes(item.slug);
   };
@@ -161,6 +176,10 @@ export function AdminLayout() {
         .filter(canViewNavItem),
     }))
     .filter(group => group.items.length > 0);
+
+  if (salaoEnabled === false && location.pathname.startsWith('/salao')) {
+    return <Navigate to="/orders" replace />;
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
