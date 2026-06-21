@@ -101,6 +101,29 @@ const formatCurrency = (value: unknown) =>
   `R$ ${Number(value || 0)
     .toFixed(2)
     .replace(".", ",")}`;
+const toCurrencyCents = (value: unknown) =>
+  Math.round(Number(value || 0) * 100);
+const calculateMissingItemsRefundAfterDiscount = (
+  order: any,
+  grossRefundValue: number,
+  itemsSubtotal: number,
+) => {
+  const grossRefundInCents = toCurrencyCents(grossRefundValue);
+  const subtotalInCents = toCurrencyCents(order?.subtotal || itemsSubtotal);
+  const discountInCents = Math.min(
+    Math.max(0, toCurrencyCents(order?.desconto)),
+    Math.max(0, subtotalInCents),
+  );
+
+  if (subtotalInCents <= 0 || discountInCents <= 0) {
+    return grossRefundInCents / 100;
+  }
+
+  const allocatedDiscountInCents = Math.round(
+    (grossRefundInCents * discountInCents) / subtotalInCents,
+  );
+  return Math.max(0, grossRefundInCents - allocatedDiscountInCents) / 100;
+};
 const formatCashChangeInfo = (payment: any) => {
   if (payment?.forma_pagamento !== "dinheiro" && payment?.method !== "dinheiro") {
     return "";
@@ -1308,9 +1331,17 @@ export function OrdersScreen() {
       itemQuantity > 0 ? getOrderItemTotal(item) / itemQuantity : 0;
     return sum + unitPrice * Math.min(quantity, itemQuantity);
   }, 0);
+  const selectedItemsSubtotal = selectedItems.reduce(
+    (sum, item) => sum + getOrderItemTotal(item),
+    0,
+  );
   const refundPreviewAmount =
     refundMode === "produto_em_falta"
-      ? missingItemsRefundAmount
+      ? calculateMissingItemsRefundAfterDiscount(
+          selected,
+          missingItemsRefundAmount,
+          selectedItemsSubtotal,
+        )
       : parseCurrencyInput(refundAmount || "0");
   const selectedForPrint = selected
     ? { ...selected, pagamento: selectedPayment }
@@ -2585,6 +2616,14 @@ export function OrdersScreen() {
                   {formatCurrency(refundPreviewAmount)}
                 </span>
               </div>
+              {refundMode === "produto_em_falta" &&
+                missingItemsRefundAmount > refundPreviewAmount && (
+                  <p className="mb-3 text-xs text-gray-500">
+                    Desconto do pedido rateado nos itens em falta: -{formatCurrency(
+                      missingItemsRefundAmount - refundPreviewAmount,
+                    )}
+                  </p>
+                )}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
