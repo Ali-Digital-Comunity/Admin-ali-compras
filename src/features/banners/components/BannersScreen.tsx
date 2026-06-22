@@ -197,6 +197,7 @@ function ProductPickerModal({
           search: debouncedQuery,
           categoryId,
           purchaseMode: purchaseMode === 'all' ? undefined : purchaseMode,
+          includeOptionProducts: true,
           promoOnly,
           page,
           perPage,

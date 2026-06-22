@@ -88,6 +88,7 @@ export const productsService = {
     activeOnly?: boolean;
     promoOnly?: boolean;
     purchaseMode?: 'simples' | 'configuravel';
+    includeOptionProducts?: boolean;
   }, options: { forceRefresh?: boolean } = {}) {
     const active =
       params.active !== undefined
@@ -102,6 +103,7 @@ export const productsService = {
       active,
       promoOnly: Boolean(params.promoOnly),
       purchaseMode: params.purchaseMode || '',
+      includeOptionProducts: Boolean(params.includeOptionProducts),
       page: params.page,
       perPage: params.perPage,
     })}`;
@@ -114,6 +116,7 @@ export const productsService = {
         categoria_id: params.categoryId || undefined,
         ativo: active,
         modo_compra: params.purchaseMode || undefined,
+        incluir_opcoes_produto: params.includeOptionProducts || undefined,
         promocao_ativa: params.promoOnly || undefined,
         page: params.page,
         per_page: params.perPage,
@@ -129,15 +132,27 @@ export const productsService = {
     const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
     if (uniqueIds.length === 0) return [];
 
+    const virtualIds = uniqueIds.filter((id) => id.includes(':'));
+    const storeProductIds = uniqueIds.filter((id) => !id.includes(':'));
+
     const responses = await Promise.allSettled(
-      uniqueIds.map((id) => api.get(`/produtos_loja/${id}`)),
+      storeProductIds.map((id) => api.get(`/produtos_loja/${id}`)),
     );
 
-    return responses.flatMap((response) => (
+    const virtualProducts = virtualIds.length > 0
+      ? await api.get('/produtos_loja', {
+        params: { incluir_opcoes_produto: true, ativo: true, per_page: 1000 },
+      }).then((response) => toPaginatedProducts(response.data).products.filter((product: any) => virtualIds.includes(product.id)))
+      : [];
+
+    return [
+      ...responses.flatMap((response) => (
       response.status === "fulfilled" && response.value.data.data
         ? [response.value.data.data]
         : []
-    ));
+      )),
+      ...virtualProducts,
+    ];
   },
 
   async getAllStoreProducts() {

@@ -16,6 +16,8 @@ type PromotionTarget = {
   price: string;
   promoPrice: string;
   configurable: boolean;
+  storeProductId?: string;
+  optionProductId?: string;
 };
 
 export function PromotionsScreen() {
@@ -37,6 +39,7 @@ export function PromotionsScreen() {
       const response = await api.get('/produtos_loja', {
         params: {
           busca: searchTerm.trim() || undefined,
+          incluir_opcoes_produto: true,
           promocao_ativa: true,
           per_page: 1000,
         },
@@ -61,6 +64,7 @@ export function PromotionsScreen() {
         params: {
           busca: searchTerm.trim() || undefined,
           ativo: true,
+          incluir_opcoes_produto: true,
           per_page: 1000,
         },
       });
@@ -108,9 +112,14 @@ export function PromotionsScreen() {
         return;
       }
 
-      await api.patch(`/produtos_loja/${id}`, { 
-        preco_promocional: val 
-      });
+      const target = editingPrice;
+      if (target?.optionProductId && target.storeProductId) {
+        await api.patch(`/produtos_loja/${target.storeProductId}/configuracao/opcoes/${target.optionProductId}/promocao`, {
+          preco_promocional: val,
+        });
+      } else {
+        await api.patch(`/produtos_loja/${id}`, { preco_promocional: val });
+      }
       
       fetchProducts(search); // Refresh
       if (showAddPromo) fetchAvailableProducts(addPromoSearch);
@@ -124,13 +133,17 @@ export function PromotionsScreen() {
     }
   };
 
-  const handleRemovePromotion = async (id: string) => {
+  const handleRemovePromotion = async (product: any) => {
     if (!window.confirm('Deseja remover a promoção deste produto?')) return;
     
     try {
-      await api.patch(`/produtos_loja/${id}`, { 
-        preco_promocional: null 
-      });
+      if (product.opcao_grupo_produto_id && product.produto_loja_id_origem) {
+        await api.patch(`/produtos_loja/${product.produto_loja_id_origem}/configuracao/opcoes/${product.opcao_grupo_produto_id}/promocao`, {
+          preco_promocional: null,
+        });
+      } else {
+        await api.patch(`/produtos_loja/${product.id}`, { preco_promocional: null });
+      }
       fetchProducts(search);
     } catch (error) {
       console.error('Error removing promotion:', error);
@@ -270,6 +283,8 @@ export function PromotionsScreen() {
                            price: price.toFixed(2), 
                            promoPrice: promoPrice.toFixed(2),
                            configurable: isConfigurableProduct(product),
+                           storeProductId: product.produto_loja_id_origem,
+                           optionProductId: product.opcao_grupo_produto_id,
                         })}
                         className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:text-primary hover:border-primary/30 transition-all"
                       >
@@ -277,7 +292,7 @@ export function PromotionsScreen() {
                         Alterar Preço
                       </button>
                       <button
-                        onClick={() => handleRemovePromotion(product.id)}
+                        onClick={() => handleRemovePromotion(product)}
                         className="p-2 rounded-lg border border-gray-200 text-gray-400 hover:text-red-500 hover:bg-red-50 hover:border-red-100 transition-all"
                         title="Remover promoção"
                       >
@@ -368,6 +383,8 @@ export function PromotionsScreen() {
                           price: parseFloat(p.preco || 0).toFixed(2), 
                           promoPrice: '',
                           configurable: isConfigurableProduct(p),
+                          storeProductId: p.produto_loja_id_origem,
+                          optionProductId: p.opcao_grupo_produto_id,
                        })}
                        className="w-full flex items-center gap-4 p-3 rounded-xl transition-all hover:bg-gray-50 border border-transparent hover:border-gray-100 group"
                     >
