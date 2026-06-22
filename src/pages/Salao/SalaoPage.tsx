@@ -22,6 +22,7 @@ import { salaoService } from "@/features/salao/services/salaoService";
 import { createSalaoAdminRealtime, salaoTenantTopic } from "@/features/salao/services/salaoRealtime";
 import { productsService } from "@/features/products";
 import { showSystemNotice } from "@/shared/components/SystemNoticeModal";
+import { SalaoProductConfiguratorModal } from "./SalaoProductConfiguratorModal";
 
 const PRIMARY = "#122a4c";
 
@@ -137,10 +138,8 @@ export function SalaoPage() {
   const [comandaModule, setComandaModule] = useState<"mesa" | "participantes" | "pedidos" | "adicionar">("mesa");
   const [productSearch, setProductSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
-  const [selectedProductConfiguration, setSelectedProductConfiguration] = useState<any | null>(null);
+  const [configuringProduct, setConfiguringProduct] = useState<{ product: any; configuration: any } | null>(null);
   const [configurationLoading, setConfigurationLoading] = useState(false);
-  const [selectedVariationId, setSelectedVariationId] = useState("");
-  const [selectedOptions, setSelectedOptions] = useState<Array<{ group: any; option: any; quantity: number }>>([]);
   const [itemQuantity, setItemQuantity] = useState("1");
   const [itemNotes, setItemNotes] = useState("");
   const [addingItem, setAddingItem] = useState(false);
@@ -413,26 +412,12 @@ export function SalaoPage() {
     try {
       const updated = await salaoService.addItem(selectedComanda.id, {
         produto_loja_id: selectedProductId,
-        variacao_produto_loja_id: selectedVariationId || undefined,
         quantidade: quantity,
         observacoes: itemNotes.trim() || undefined,
-        configuracao_versao: selectedProductConfiguration?.versao,
-        selecoes: selectedOptions.map(({ group, option, quantity: optionQuantity }) => ({
-          grupo_id: group.id,
-          opcao_id: option.id,
-          quantidade: optionQuantity,
-          nome_grupo: group.nome,
-          nome_opcao: option.nome,
-          preco_unitario: Number(option.preco_adicional || 0),
-          preco_contribuicao: Number(option.preco_adicional || 0) * optionQuantity,
-        })),
       });
       setSelectedComanda(updated);
       setComandaModule("pedidos");
       setSelectedProductId("");
-      setSelectedProductConfiguration(null);
-      setSelectedVariationId("");
-      setSelectedOptions([]);
       setItemQuantity("1");
       setItemNotes("");
       await load();
@@ -444,16 +429,19 @@ export function SalaoPage() {
   };
 
   const selectProductForComanda = async (product: any) => {
-    setSelectedProductId(product.id);
-    setSelectedProductConfiguration(null);
-    setSelectedVariationId("");
-    setSelectedOptions([]);
-    if (product.modo_compra !== "configuravel") return;
+    if (product.modo_compra !== "configuravel") {
+      setSelectedProductId(product.id);
+      setItemQuantity("1");
+      setItemNotes("");
+      return;
+    }
+
+    setSelectedProductId("");
+    setConfiguringProduct(null);
     setConfigurationLoading(true);
     try {
       const configuration = await productsService.getProductConfiguration(product.id);
-      setSelectedProductConfiguration(configuration);
-      setSelectedVariationId(configuration?.variacoes?.[0]?.id || "");
+      setConfiguringProduct({ product, configuration });
     } catch (error: any) {
       showSystemNotice(error?.response?.data?.message || error?.message || "Não foi possível carregar as opções do produto.");
     } finally {
@@ -461,15 +449,40 @@ export function SalaoPage() {
     }
   };
 
-  const toggleOption = (group: any, option: any) => {
-    setSelectedOptions((current) => {
-      const selected = current.find((item) => item.group.id === group.id && item.option.id === option.id);
-      if (selected) return current.filter((item) => !(item.group.id === group.id && item.option.id === option.id));
-      if (group.tipo_selecao === "unica") return [...current.filter((item) => item.group.id !== group.id), { group, option, quantity: 1 }];
-      const groupCount = current.filter((item) => item.group.id === group.id).reduce((sum, item) => sum + item.quantity, 0);
-      if (groupCount >= Number(group.maximo_selecoes || 1)) return current;
-      return [...current, { group, option, quantity: 1 }];
-    });
+  const addConfiguredProductToComanda = async (item: {
+    variationId: string;
+    selections: Array<{ group: any; option: any; quantity: number }>;
+    quantity: number;
+    notes: string;
+  }) => {
+    if (!selectedComanda?.id || !configuringProduct) return;
+    setAddingItem(true);
+    try {
+      const updated = await salaoService.addItem(selectedComanda.id, {
+        produto_loja_id: configuringProduct.product.id,
+        variacao_produto_loja_id: item.variationId || undefined,
+        quantidade: item.quantity,
+        observacoes: item.notes.trim() || undefined,
+        configuracao_versao: configuringProduct.configuration?.versao,
+        selecoes: item.selections.map(({ group, option, quantity: optionQuantity }) => ({
+          grupo_id: group.id,
+          opcao_id: option.id,
+          quantidade: optionQuantity,
+          nome_grupo: group.nome,
+          nome_opcao: option.nome,
+          preco_unitario: Number(option.preco_adicional || 0),
+          preco_contribuicao: Number(option.preco_adicional || 0) * optionQuantity,
+        })),
+      });
+      setSelectedComanda(updated);
+      setConfiguringProduct(null);
+      setComandaModule("pedidos");
+      await load();
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || error?.message || "Nao foi possivel adicionar o produto.");
+    } finally {
+      setAddingItem(false);
+    }
   };
 
   const closeAccount = async (comanda: any) => {
@@ -608,10 +621,6 @@ export function SalaoPage() {
     productName(product).toLowerCase().includes(productSearch.trim().toLowerCase()),
   );
   const selectedProduct = products.find((product) => product.id === selectedProductId);
-  const configurationIsValid = !selectedProductConfiguration || (selectedProductConfiguration.grupos || []).every((group: any) => {
-    const selectedCount = selectedOptions.filter((item) => item.group.id === group.id).reduce((sum, item) => sum + item.quantity, 0);
-    return selectedCount >= Number(group.minimo_selecoes || 0) && selectedCount <= Number(group.maximo_selecoes || Number.MAX_SAFE_INTEGER);
-  });
   const activeTabClass = "bg-white text-gray-900 shadow-sm";
   const tableStatusClass: Record<string, string> = {
     livre: "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200",
@@ -951,7 +960,7 @@ export function SalaoPage() {
                         >
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium text-gray-900">{productName(product)}</div>
-                            <div className="text-xs text-gray-500">{product.categoria_nome || product.categoria_caminho || "Sem categoria"}</div>
+                            <div className="text-xs text-gray-500">{product.modo_compra === "configuravel" ? "Personalizar adicionais" : product.categoria_nome || product.categoria_caminho || "Sem categoria"}</div>
                           </div>
                           <div className="shrink-0 text-sm font-semibold text-gray-900">R$ {formatMoney(productPrice(product))}</div>
                         </button>
@@ -961,36 +970,6 @@ export function SalaoPage() {
                     {configurationLoading && (
                       <div className="mt-3 flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Carregando variações e adicionais...</div>
                     )}
-                    {selectedProductConfiguration && (
-                      <div className="mt-2 max-h-64 space-y-2 overflow-auto rounded-lg border border-blue-100 bg-blue-50 p-2.5 sm:mt-3 sm:max-h-72 sm:space-y-3 sm:p-3">
-                        <div className="text-xs font-bold text-blue-900">Configure o item antes de adicionar</div>
-                        {(selectedProductConfiguration.variacoes || []).length > 0 && (
-                          <div>
-                            <div className="mb-1 text-xs font-semibold text-gray-700">Variação / tamanho</div>
-                            <div className="flex flex-wrap gap-2">
-                              {selectedProductConfiguration.variacoes.map((variation: any) => (
-                                <button key={variation.id} onClick={() => setSelectedVariationId(variation.id)} className={`rounded-md border px-2 py-1 text-xs font-semibold ${selectedVariationId === variation.id ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-700"}`}>{variation.nome} · R$ {formatMoney(variation.preco_promocional || variation.preco)}</button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {(selectedProductConfiguration.grupos || []).map((group: any) => {
-                          const selectedCount = selectedOptions.filter((item) => item.group.id === group.id).reduce((sum, item) => sum + item.quantity, 0);
-                          return (
-                            <div key={group.id} className="border-t border-blue-100 pt-2">
-                              <div className="mb-1 flex justify-between gap-2"><span className="text-xs font-semibold text-gray-800">{group.nome}</span><span className="text-[10px] text-gray-500">{group.minimo_selecoes > 0 ? "Obrigatório" : "Opcional"} · {selectedCount}/{group.maximo_selecoes}</span></div>
-                              <div className="space-y-1">
-                                {(group.opcoes || []).filter((option: any) => option.ativa !== false).map((option: any) => {
-                                  const selected = selectedOptions.some((item) => item.group.id === group.id && item.option.id === option.id);
-                                  return <button key={option.id} onClick={() => toggleOption(group, option)} className={`flex w-full items-center justify-between rounded-md border px-2 py-2 text-left text-xs ${selected ? "border-blue-500 bg-white" : "border-transparent bg-white/70"}`}><span>{selected ? "✓ " : ""}{option.nome}</span><span>{Number(option.preco_adicional || 0) > 0 ? `+ R$ ${formatMoney(option.preco_adicional)}` : ""}</span></button>;
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
                     <div className="mt-2 grid grid-cols-[84px_1fr] gap-2 sm:mt-3 sm:grid-cols-[92px_1fr]">
                       <input
                         value={itemQuantity}
@@ -1008,7 +987,7 @@ export function SalaoPage() {
                     </div>
                     <button
                       onClick={() => void addProductToComanda()}
-                      disabled={!selectedProduct || addingItem || configurationLoading || !configurationIsValid || selectedComanda.status !== "aberta"}
+                      disabled={!selectedProduct || addingItem || configurationLoading || selectedComanda.status !== "aberta"}
                       className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 sm:mt-3 sm:min-h-12 sm:px-4 sm:text-sm"
                       style={{ backgroundColor: PRIMARY }}
                     >
@@ -1081,6 +1060,15 @@ export function SalaoPage() {
             <button onClick={() => setQrDownloadMesa(null)} disabled={Boolean(actionBusy)} className="mt-3 w-full rounded-xl px-4 py-2 text-sm font-bold text-slate-500">Cancelar</button>
           </div>
         </div>
+      )}
+      {configuringProduct && (
+        <SalaoProductConfiguratorModal
+          product={configuringProduct.product}
+          configuration={configuringProduct.configuration}
+          busy={addingItem}
+          onClose={() => setConfiguringProduct(null)}
+          onConfirm={(item) => void addConfiguredProductToComanda(item)}
+        />
       )}
     </div>
   );
