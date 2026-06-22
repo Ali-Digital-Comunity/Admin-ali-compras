@@ -18,6 +18,11 @@ const PRIMARY = '#122a4c';
 const sortCategories = (items: any[]) =>
   [...items].sort((a, b) => (a.ordem_exibicao ?? 0) - (b.ordem_exibicao ?? 0) || (a.nome || '').localeCompare(b.nome || ''));
 
+const getRootCategories = (items: any[]) => {
+  const ids = new Set(items.map((item) => item.id));
+  return sortCategories(items.filter((item) => !item.categoria_pai_id || !ids.has(item.categoria_pai_id)));
+};
+
 function getCategoryPath(categories: any[], categoryId?: string | null) {
   if (!categoryId) return [];
 
@@ -260,7 +265,7 @@ function ProductForm({ product, isNew, categories, canManageImages, onClose, onS
   const [loadingVariations, setLoadingVariations] = useState(false);
   const [loading, setLoading] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const departments = sortCategories(categories.filter((cat: any) => (cat.nivel ?? 1) === 1));
+  const departments = getRootCategories(categories);
   const childCategories = sortCategories(categories.filter((cat: any) => cat.categoria_pai_id === departmentId));
   const subcategories = sortCategories(categories.filter((cat: any) => cat.categoria_pai_id === categoryId));
   const selectedCategoryId = subcategoryId || categoryId || departmentId || '';
@@ -799,12 +804,32 @@ export function ProductsScreen() {
       })
       .catch(() => setCanManageImages(false));
   }, []);
-  const departments = sortCategories(dbCategories.filter((category: any) => (category.nivel ?? 1) === 1));
+  const departments = getRootCategories(dbCategories);
   const categories = sortCategories(dbCategories.filter((category: any) => category.categoria_pai_id === departmentId));
   const subcategories = sortCategories(dbCategories.filter((category: any) => category.categoria_pai_id === categoryId));
   const selectedDepartment = departments.find((category: any) => category.id === departmentId);
   const selectedCategory = categories.find((category: any) => category.id === categoryId);
   const visiblePages = getPaginationPages(page, totalPages);
+
+  const removeProductFromStore = async (product: any) => {
+    const isLocalProduct = product.escopo_catalogo === 'loja';
+    const action = isLocalProduct ? 'excluir este produto criado pela loja' : 'desvincular este produto global da loja';
+    const historyNote = isLocalProduct
+      ? 'O produto deixará de aparecer no catálogo, mas o histórico dos pedidos será preservado.'
+      : 'O produto continuará disponível no catálogo global e o histórico dos pedidos será preservado.';
+
+    if (!window.confirm(`Deseja ${action}?\n\n${historyNote}`)) return;
+
+    try {
+      await productsService.removeStoreProduct(product.id);
+      await Promise.all([
+        fetchProducts({ forceRefresh: true }),
+        fetchCategories({ forceRefresh: true }),
+      ]);
+    } catch (error: any) {
+      showSystemNotice(error?.response?.data?.message || 'Não foi possível remover o produto da loja.');
+    }
+  };
 
   const selectAllCategories = () => {
     setDepartmentId('');
@@ -1119,6 +1144,13 @@ export function ProductsScreen() {
                           title={product.destaque ? 'Remover Destaque' : 'Destacar'}
                         >
                           <Star className={`w-3.5 h-3.5 ${product.destaque ? 'fill-amber-600' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => removeProductFromStore(product)}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
+                          title={product.escopo_catalogo === 'loja' ? 'Excluir produto da loja' : 'Desvincular produto da loja'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
 
                       </div>

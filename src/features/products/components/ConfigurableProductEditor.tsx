@@ -230,6 +230,7 @@ export function ConfigurableProductEditor({ product, duplicate = false, categori
     variacoes: [],
     grupos: defaultAddonGroups(),
   });
+  const [optionImageFiles, setOptionImageFiles] = useState<Map<string, File>>(new Map());
   const [loading, setLoading] = useState(Boolean(product && !duplicate));
   const [saving, setSaving] = useState(false);
   const editingExisting = Boolean(product?.id && !duplicate);
@@ -302,6 +303,21 @@ export function ConfigurableProductEditor({ product, duplicate = false, categori
           }
         : group),
     }));
+  };
+
+  const optionImageKey = (groupIndex: number, optionIndex: number) => `${groupIndex}:${optionIndex}`;
+
+  const selectOptionImage = (groupIndex: number, optionIndex: number, file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) {
+      showSystemNotice("Envie uma imagem JPEG, PNG, WebP ou GIF de até 8 MB.");
+      return;
+    }
+    setOptionImageFiles((current) => {
+      const next = new Map(current);
+      next.set(optionImageKey(groupIndex, optionIndex), file);
+      return next;
+    });
   };
 
   const updateVariationRule = (groupIndex: number, variation: ConfigurableVariation, maximum: number) => {
@@ -411,9 +427,20 @@ export function ConfigurableProductEditor({ product, duplicate = false, categori
           modo_estoque: "disponibilidade",
         });
       }
+      const normalizedConfiguration = normalizeConfigurationRules(configuration);
+      const groupsWithUploadedImages = await Promise.all(normalizedConfiguration.grupos.map(async (group, groupIndex) => ({
+        ...group,
+        opcoes: await Promise.all(group.opcoes.map(async (item, optionIndex) => {
+          const file = optionImageFiles.get(optionImageKey(groupIndex, optionIndex));
+          if (!file) return item;
+          const uploaded = await productsService.uploadConfigurationOptionImage(productStoreId, file);
+          return { ...item, imagem_url: uploaded.url };
+        })),
+      })));
       await productsService.updateProductConfiguration(productStoreId, {
-        ...normalizeConfigurationRules(configuration),
+        ...normalizedConfiguration,
         versao: version,
+        grupos: groupsWithUploadedImages,
       });
       if (imageFile && productId) {
         await productsService.uploadProductImage(productId, imageFile, true);
@@ -717,13 +744,26 @@ export function ConfigurableProductEditor({ product, duplicate = false, categori
                           </select>
                         </td>
                         <td className="p-2">
-                          <input
-                            value={item.imagem_url || ""}
-                            onChange={(event) => updateOption(groupIndex, optionIndex, { imagem_url: event.target.value || null })}
-                            placeholder="URL da imagem"
-                            disabled={(item.tipo_item || "adicional") === "adicional"}
-                            className="w-48 rounded border p-2"
-                          />
+                          {(item.tipo_item || "adicional") === "adicional" ? (
+                            <span className="text-[11px] text-gray-400">Disponível para opção-produto</span>
+                          ) : (
+                            <label className={`flex w-48 cursor-pointer items-center gap-2 rounded border border-dashed p-2 text-xs ${canManageImages ? "border-gray-300 text-gray-700 hover:bg-gray-50" : "cursor-not-allowed border-gray-200 text-gray-400"}`}>
+                              <ImagePlus className="h-4 w-4 flex-shrink-0" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {optionImageFiles.get(optionImageKey(groupIndex, optionIndex))?.name || (item.imagem_url ? "Imagem enviada" : "Enviar imagem")}
+                              </span>
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                disabled={!canManageImages}
+                                className="sr-only"
+                                onChange={(event) => {
+                                  selectOptionImage(groupIndex, optionIndex, event.target.files?.[0] || null);
+                                  event.target.value = "";
+                                }}
+                              />
+                            </label>
+                          )}
                         </td>
                         {group.tipo_selecao !== "fracionada" && (
                           <td className="p-2"><input type="number" min="1" step="1" value={item.quantidade_maxima} onChange={(event) => updateOption(groupIndex, optionIndex, { quantidade_maxima: numberValue(event.target.value) })} className="w-20 rounded border p-2" /></td>

@@ -220,7 +220,6 @@ export function OrdersScreen() {
   const [storePrintData, setStorePrintData] = useState<any | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
-  const [manualOrderEnabled, setManualOrderEnabled] = useState(false);
   const [salaoEnabled, setSalaoEnabled] = useState(false);
   const [newOrdersCount, setNewOrdersCount] = useState<Record<OrderType, number>>({
     entrega: 0,
@@ -265,19 +264,10 @@ export function OrdersScreen() {
 
   useEffect(() => {
     if (!user?.loja_id) return;
-    Promise.allSettled([
-      api.get(`/lojas/${user.loja_id}/configuracoes`),
-      api.get(`/salao/lojas/${user.loja_id}/modulos`),
-    ]).then(([configResult, modulesResult]) => {
-      const config = configResult.status === "fulfilled"
-        ? (configResult.value.data?.data ?? configResult.value.data)
-        : {};
-      const modules = modulesResult.status === "fulfilled"
-        ? (modulesResult.value.data?.data ?? modulesResult.value.data)
-        : [];
-      setManualOrderEnabled(config?.permitir_criacao_pedidos_delivery_admin === true);
+    api.get(`/salao/lojas/${user.loja_id}/modulos`).then((modulesResult) => {
+      const modules = modulesResult.data?.data ?? modulesResult.data ?? [];
       setSalaoEnabled(Array.isArray(modules) && modules.some((module: any) => module.slug === "salao" && module.enabled === true));
-    });
+    }).catch(() => setSalaoEnabled(false));
   }, [user?.loja_id]);
 
   useEffect(() => {
@@ -1779,7 +1769,7 @@ export function OrdersScreen() {
         {/* Filters bar */}
         <div className="relative bg-white border-b border-gray-200 px-4 py-2">
           <div className="flex items-center justify-between gap-3">
-            {manualOrderEnabled && typeFilter !== "Salao" && <button type="button" onClick={() => setManualOrderOpen(true)} className="rounded-lg px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: primaryColor }}>+ Criar pedido</button>}
+            {typeFilter !== "Salao" && <button type="button" onClick={() => setManualOrderOpen(true)} className="rounded-lg px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: primaryColor }}>+ Criar pedido</button>}
             <button
               type="button"
               onClick={() => setFiltersOpen((open) => !open)}
