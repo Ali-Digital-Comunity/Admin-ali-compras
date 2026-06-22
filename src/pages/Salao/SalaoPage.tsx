@@ -154,7 +154,7 @@ export function SalaoPage() {
   const [creatingTable, setCreatingTable] = useState(false);
   const [newTableNumber, setNewTableNumber] = useState("");
   const [selectedComanda, setSelectedComanda] = useState<any | null>(null);
-  const [comandaModule, setComandaModule] = useState<"mesa" | "participantes" | "pedidos" | "adicionar">("mesa");
+  const [comandaModule, setComandaModule] = useState<"mesa" | "participantes" | "pedidos">("mesa");
   const [productSearch, setProductSearch] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [configuringProduct, setConfiguringProduct] = useState<{ product: any; configuration: any } | null>(null);
@@ -841,8 +841,7 @@ export function SalaoPage() {
                   <div className="sticky top-0 z-30 -mx-4 mb-4 flex gap-1 overflow-x-auto border-b border-gray-100 bg-white px-4 py-2 shadow-sm scrollbar-hide">
                     {[
                       ["mesa", Armchair, "Mesa"],
-                      ["adicionar", ShoppingCart, "Adicionar produto"],
-                      ["pedidos", ClipboardList, "Pedidos"],
+                      ["pedidos", ShoppingCart, "Produtos e pedidos"],
                       ["participantes", UserCheck, "Participantes"],
                     ].map(([id, Icon, label]) => (
                       <button key={String(id)} onClick={() => setComandaModule(id as typeof comandaModule)} className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-bold sm:min-h-11 sm:gap-2 sm:px-3 sm:py-2 sm:text-xs ${comandaModule === id ? "bg-[#122a4c] text-white shadow-sm" : "bg-slate-100 text-slate-600"}`}>
@@ -942,6 +941,10 @@ export function SalaoPage() {
                     </div>
 
                     <div className={comandaModule === "pedidos" ? "mt-3 space-y-1.5 sm:mt-4 sm:space-y-2" : "hidden"}>
+                      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900 sm:mb-3">
+                        <ClipboardList className="h-4 w-4" />
+                        Pedidos da mesa
+                      </div>
                       {(selectedComanda.itens || []).length === 0 ? (
                         <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">
                           Nenhum produto adicionado.
@@ -995,7 +998,7 @@ export function SalaoPage() {
                     </div>
                   </div>
 
-                  <div className={comandaModule === "adicionar" ? "order-1 sticky top-[52px] z-20 self-start rounded-xl border border-gray-100 bg-gray-50 p-2.5 shadow-sm lg:order-none lg:top-3 lg:p-3" : "hidden"}>
+                  <div className={comandaModule === "pedidos" ? "order-1 self-start rounded-xl border border-gray-100 bg-gray-50 p-2.5 shadow-sm lg:order-none lg:sticky lg:top-3 lg:p-3" : "hidden"}>
                     <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
                       <ShoppingCart className="h-4 w-4" />
                       Adicionar produto
@@ -1010,7 +1013,7 @@ export function SalaoPage() {
                       />
                     </div>
 
-                    <div className="mt-3 max-h-64 space-y-2 overflow-auto">
+                    <div className="mt-3 max-h-52 space-y-2 overflow-auto sm:max-h-64">
                       {filteredProducts.map((product) => (
                         <button
                           key={product.id}
