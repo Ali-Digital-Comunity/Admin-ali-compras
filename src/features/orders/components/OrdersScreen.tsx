@@ -139,7 +139,9 @@ const formatCashChangeInfo = (payment: any) => {
   return "";
 };
 const canOrderProceedForFulfillment = (order: any, payments: any[] = []) =>
-  isOrderPaid(order, payments) || isOrderPendingCash(order, payments);
+  isOrderPaid(order, payments) ||
+  isOrderPendingCash(order, payments) ||
+  order?.origem_checkout === "admin_dashboard";
 const REFUND_ACTIVE_STATUSES = new Set(["pendente", "processando", "aprovado"]);
 const ORDER_TABS = [
   { value: "Entrega", label: "Delivery" },
@@ -1474,7 +1476,7 @@ export function OrdersScreen() {
     selectedIsDelivery && selectedStatusLabel === "Pronto";
   const adminCannotConfirmDelivery =
     selectedIsDelivery && selectedStatusLabel === "Saiu para Entrega";
-  const selectedCanProceed = selectedIsPaid || selectedIsPendingCash;
+  const selectedCanProceed = selectedIsPaid || selectedIsPendingCash || selected?.origem_checkout === "admin_dashboard";
   const selectedPickupNeedsCashConfirmation =
     selectedIsPickup && selectedIsPendingCash && selectedStatusLabel === "Pronto";
   const selectedCustomerName =
@@ -2801,22 +2803,22 @@ export function OrdersScreen() {
                 </div>
               )}
             </div>
-            <button
+            {!selectedIsSalao && <button
               onClick={() => handlePrintComanda(selectedForPrint)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
               title="Imprimir comanda"
             >
               <Printer className="w-4 h-4" />
               <span className="hidden sm:inline text-xs">Imprimir</span>
-            </button>
-            <button
+            </button>}
+            {!selectedIsSalao && <button
               onClick={() => openItemsChecklist(selected)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
               title="Ver produtos"
             >
               <Package className="w-4 h-4" />
               <span className="hidden sm:inline text-xs">Ver produtos</span>
-            </button>
+            </button>}
             <button
               onClick={() => setSelected(null)}
               className="hidden lg:block text-gray-400 hover:text-gray-600"
@@ -2827,7 +2829,7 @@ export function OrdersScreen() {
 
           <div className="p-5 space-y-5">
             {/* Timeline */}
-            <div className="bg-gray-50 rounded-xl p-4">
+            {!selectedIsSalao && <div className="bg-gray-50 rounded-xl p-4">
               <div className="flex items-start gap-1 overflow-x-auto pb-1">
                 {(() => {
                   const baseFlow =
@@ -2904,9 +2906,9 @@ export function OrdersScreen() {
                   );
                 })}
               </div>
-            </div>
+            </div>}
 
-            {selected.status === "nao_entregue" && (
+            {!selectedIsSalao && selected.status === "nao_entregue" && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                 <h4 className="mb-1 text-sm font-semibold text-red-800">
                   Pedido não entregue
@@ -2940,7 +2942,7 @@ export function OrdersScreen() {
             )}
 
             {/* Customer info */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            {!selectedIsSalao && <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h4 className="text-gray-700 font-semibold mb-3 flex items-center gap-2">
                 <User className="w-4 h-4" style={{ color: PRIMARY }} /> Dados do
                 Cliente
@@ -2979,7 +2981,7 @@ export function OrdersScreen() {
                   </>
                 )}
               </div>
-            </div>
+            </div>}
 
             {/* Items */}
             <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -3021,7 +3023,7 @@ export function OrdersScreen() {
                     </div>
                   ))}
               </div>
-              <div className="border-t border-gray-100 mt-3 pt-3 space-y-1.5">
+              {!selectedIsSalao && <div className="border-t border-gray-100 mt-3 pt-3 space-y-1.5">
                 <div className="flex justify-between text-sm text-gray-500">
                   <span>Subtotal</span>
                   <span>
@@ -3070,11 +3072,11 @@ export function OrdersScreen() {
                       .replace(".", ",")}
                   </span>
                 </div>
-              </div>
+              </div>}
             </div>
 
             {/* Payment */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
+            {!selectedIsSalao && <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h4 className="text-gray-700 font-semibold mb-2 flex items-center gap-2">
                 <CreditCard className="w-4 h-4" style={{ color: PRIMARY }} />{" "}
                 Pagamento
@@ -3172,10 +3174,10 @@ export function OrdersScreen() {
                   </div>
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Delivery Person Assignment */}
-            {selectedCancellationPending && (
+            {!selectedIsSalao && selectedCancellationPending && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                 <h4 className="flex items-center gap-2 text-sm font-semibold text-red-800">
                   <AlertTriangle className="h-4 w-4" />
@@ -3256,6 +3258,7 @@ export function OrdersScreen() {
 
             {/* Actions */}
             <div className="space-y-2">
+              {!selectedIsSalao && <>
               {getStatusLabel(selected.status) !== "Entregue" &&
                 getStatusLabel(selected.status) !== "Cancelado" &&
                 getStatusLabel(selected.status) !== "Não entregue" &&
@@ -3331,25 +3334,26 @@ export function OrdersScreen() {
                   cliente.
                 </div>
               )}
+              </>}
               <button
                 onClick={() => handlePrintComanda(selectedForPrint)}
                 className="w-full py-2.5 rounded-lg text-gray-700 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
               >
                 <Printer className="w-4 h-4" /> Imprimir Comanda
               </button>
-              <button
+              {!selectedIsSalao && <button
                 onClick={() => openItemsChecklist(selected)}
                 className="w-full py-2.5 rounded-lg text-gray-700 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
               >
                 <Package className="w-4 h-4" /> Ver produtos
-              </button>
-              <button
+              </button>}
+              {!selectedIsSalao && <button
                 onClick={openRefundModal}
                 disabled={!selectedCanRefund || selectedOrderUpdating}
                 className="w-full py-2.5 rounded-lg text-blue-700 text-sm font-medium border border-blue-200 hover:bg-blue-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 <RotateCcw className="w-4 h-4" /> Reembolsar
-              </button>
+              </button>}
               <button
                 onClick={() => toggleArchivedOrder(selected)}
                 disabled={selectedOrderUpdating}
@@ -3395,9 +3399,9 @@ export function OrdersScreen() {
                     )}
                   </button>
                 )}
-              <button className="w-full py-2.5 rounded-lg text-gray-600 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
+              {!selectedIsSalao && <button className="w-full py-2.5 rounded-lg text-gray-600 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
                 <Phone className="w-4 h-4" /> Entrar em Contato
-              </button>
+              </button>}
             </div>
           </div>
         </div>
