@@ -364,6 +364,28 @@ export function SalaoPage() {
     }
   };
 
+  const openMesa = async (mesa: any) => {
+    if (!mesa.comanda_aberta) return;
+
+    if (mesa.status === "aguardando_garcom") {
+      setActionBusy(`waiter-${mesa.id}`);
+      try {
+        const updatedMesa = await salaoService.acknowledgeWaiterCallForMesa(mesa.id);
+        setMesas((currentMesas) => currentMesas.map((currentMesa) =>
+          currentMesa.id === mesa.id ? { ...currentMesa, ...updatedMesa } : currentMesa,
+        ));
+      } catch (error: any) {
+        showSystemNotice(error?.response?.data?.message || error?.message || "Não foi possível confirmar o atendimento do garçom.");
+        return;
+      } finally {
+        setActionBusy("");
+      }
+    }
+
+    setTab("comandas");
+    await selectComanda(mesa.comanda_aberta);
+  };
+
   const downloadQrCode = async (mesa: any, generateNew = false) => {
     setActionBusy(`qr-${mesa.id}`);
     try {
@@ -732,22 +754,18 @@ export function SalaoPage() {
               {mesas.map((mesa) => {
                 const pendingAction = getMesaPendingAction(mesa);
                 const hasOpenComanda = Boolean(mesa.comanda_aberta);
-                const openMesa = () => {
-                  if (!mesa.comanda_aberta) return;
-                  setTab("comandas");
-                  void selectComanda(mesa.comanda_aberta);
-                };
+                const handleMesaClick = () => void openMesa(mesa);
 
                 return (
                 <div
                   key={mesa.id}
                   role={hasOpenComanda ? "button" : undefined}
                   tabIndex={hasOpenComanda ? 0 : undefined}
-                  onClick={openMesa}
+                  onClick={handleMesaClick}
                   onKeyDown={(event) => {
                     if (hasOpenComanda && (event.key === "Enter" || event.key === " ")) {
                       event.preventDefault();
-                      openMesa();
+                      handleMesaClick();
                     }
                   }}
                   className={`min-h-32 rounded-xl border bg-white p-3 shadow-sm transition-all ${
