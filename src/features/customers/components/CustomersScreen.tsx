@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Search, Eye, X, Phone, Mail, MapPin, ShoppingBag, ArrowLeft, MessageCircle } from 'lucide-react';
 import api from '@/shared/lib/api';
 import { formatBrasiliaDate } from '@/shared/lib/dateTime';
+import { getAdminCachedData, getAdminCacheScope } from '@/features/performance';
 
 const PRIMARY = '#122a4c';
 
@@ -175,14 +176,29 @@ export function CustomersScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get('/clientes').then(res => {
-      const data = res.data.data;
-      setCustomers(Array.isArray(data) ? data : data?.data || []);
-      setLoading(false);
-    }).catch(err => {
-      console.error('Error fetching customers', err);
-      setLoading(false);
-    });
+    let active = true;
+
+    const loadCustomers = async () => {
+      try {
+        const warmedCustomers = await getAdminCachedData<any[]>(getAdminCacheScope(), 'customers');
+        if (active && warmedCustomers) {
+          setCustomers(warmedCustomers);
+          setLoading(false);
+          return;
+        }
+
+        const response = await api.get('/clientes');
+        const data = response.data.data;
+        if (active) setCustomers(Array.isArray(data) ? data : data?.data || []);
+      } catch (err) {
+        console.error('Error fetching customers', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void loadCustomers();
+    return () => { active = false; };
   }, []);
 
   const filtered = customers.filter(c => {

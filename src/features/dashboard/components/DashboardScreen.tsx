@@ -6,10 +6,19 @@ import {
 } from 'recharts';
 import {
   ShoppingCart, TrendingUp, Truck, XCircle, DollarSign, Users,
-  Package, AlertTriangle, ArrowRight, Clock, CheckCircle2, Activity, Calendar
+  Package, AlertTriangle, ArrowRight, Clock, CheckCircle2, Activity, Calendar, Zap
 } from 'lucide-react';
 import api from '@/shared/lib/api';
 import { dateInputInBrasilia, formatBrasiliaTime, hourInBrasilia } from '@/shared/lib/dateTime';
+import {
+  AdminCacheWarmupModal,
+  getAdminCachedData,
+  getAdminCacheScope,
+  saveAdminCachedData,
+  warmAdminCache,
+  type AdminCacheProgress,
+  type AdminCacheWarmupResult,
+} from '@/features/performance';
 
 const PRIMARY = '#122a4c';
 
@@ -159,6 +168,10 @@ export function DashboardScreen() {
   const [metrics, setMetrics] = useState<any>(null);
   const [storeConfig, setStoreConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [cacheModalOpen, setCacheModalOpen] = useState(false);
+  const [cacheProgress, setCacheProgress] = useState<AdminCacheProgress>({ progress: 0, message: 'Preparando armazenamento local' });
+  const [cacheResult, setCacheResult] = useState<AdminCacheWarmupResult | null>(null);
+  const [cacheError, setCacheError] = useState<string | null>(null);
 
   const [selectedDate, setSelectedDate] = useState(todayDateInput);
   const [salesIntervalMinutes, setSalesIntervalMinutes] = useState(60);
@@ -173,6 +186,27 @@ export function DashboardScreen() {
   })();
 
   useEffect(() => {
+    let active = true;
+    const cacheScope = getAdminCacheScope(user);
+
+    const hydrateFromCache = async () => {
+      try {
+        const [cachedMetrics, cachedConfig] = await Promise.all([
+          getAdminCachedData<any>(cacheScope, `dashboard:${selectedDate}`),
+          user?.loja_id ? getAdminCachedData<any>(cacheScope, 'store:settings') : Promise.resolve(null),
+        ]);
+
+        if (!active) return;
+        if (cachedMetrics) {
+          setMetrics(cachedMetrics);
+          setLoading(false);
+        }
+        if (cachedConfig) setStoreConfig(cachedConfig);
+      } catch {
+        // The dashboard remains fully usable if local storage is unavailable.
+      }
+    };
+
     const fetchDashboardData = async () => {
       setLoading(true);
       try {
@@ -182,13 +216,17 @@ export function DashboardScreen() {
         ]);
 
         if (metricsRes.status === 'fulfilled') {
-          setMetrics(metricsRes.value.data.data);
+          const nextMetrics = metricsRes.value.data.data;
+          if (active) setMetrics(nextMetrics);
+          void saveAdminCachedData(cacheScope, `dashboard:${selectedDate}`, nextMetrics);
         } else {
           throw metricsRes.reason;
         }
 
         if (configRes.status === 'fulfilled' && configRes.value) {
-          setStoreConfig(configRes.value.data?.data || configRes.value.data || null);
+          const nextConfig = configRes.value.data?.data || configRes.value.data || null;
+          if (active) setStoreConfig(nextConfig);
+          void saveAdminCachedData(cacheScope, 'store:settings', nextConfig);
         }
       } catch (error) {
         console.error('Error fetching metrics', error);
@@ -197,12 +235,34 @@ export function DashboardScreen() {
           navigate('/login');
         }
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    fetchDashboardData();
+    void hydrateFromCache();
+    void fetchDashboardData();
+
+    return () => {
+      active = false;
+    };
   }, [navigate, selectedDate, user?.loja_id]);
+
+  const warmSystemCache = async () => {
+    setCacheResult(null);
+    setCacheError(null);
+    setCacheProgress({ progress: 0, message: 'Preparando armazenamento local' });
+    setCacheModalOpen(true);
+
+    try {
+      const result = await warmAdminCache({
+        user,
+        onProgress: setCacheProgress,
+      });
+      setCacheResult(result);
+    } catch (error: any) {
+      setCacheError(error?.message || 'Não foi possível preparar os dados para acesso rápido.');
+    }
+  };
 
   if (loading && !metrics) {
     return (
@@ -269,6 +329,17 @@ export function DashboardScreen() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={warmSystemCache}
+            className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold shadow-sm transition-colors hover:bg-gray-100"
+            style={{ color: primaryColor }}
+            title="Baixar catálogo, clientes, imagens e configurações para acesso mais rápido"
+          >
+            <Zap className="h-4 w-4" />
+            <span className="hidden sm:inline">Deixar o sistema ultrarrápido</span>
+            <span className="sm:hidden">Ultrarrápido</span>
+          </button>
           <div className="flex flex-wrap items-center gap-2 bg-white/10 rounded-lg p-1 text-sm">
             <Calendar className="w-4 h-4 ml-2 mr-1 text-white/70" />
             <input 
@@ -458,6 +529,14 @@ export function DashboardScreen() {
           </div>
         </div>
       </div>
+
+      <AdminCacheWarmupModal
+        open={cacheModalOpen}
+        status={cacheProgress}
+        result={cacheResult}
+        error={cacheError}
+        onClose={() => setCacheModalOpen(false)}
+      />
     </div>
   );
 }

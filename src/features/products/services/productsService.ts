@@ -1,4 +1,5 @@
 import api from "@/shared/lib/api";
+import { deleteAdminCachedData, getAdminCachedData, getAdminCacheScope } from '@/features/performance';
 import type { ProductConfiguration, ProductStorePayload } from "../types/product";
 
 const STORE_PRODUCTS_CACHE_PREFIX = "admin-store-products:v1:";
@@ -71,10 +72,19 @@ const clearCacheByPrefix = (prefix: string) => {
 const invalidateStoreProductsCache = () => {
   clearCacheByPrefix(STORE_PRODUCTS_CACHE_PREFIX);
   clearCacheByPrefix(ACTIVE_CATEGORIES_CACHE_PREFIX);
+  void deleteAdminCachedData(getAdminCacheScope(), 'catalog:products');
+  void deleteAdminCachedData(getAdminCacheScope(), 'catalog:configurations');
 };
+
+const getWarmedStoreProducts = () => getAdminCachedData<any[]>(getAdminCacheScope(), 'catalog:products');
+
+const getWarmedCategories = () => getAdminCachedData<any[]>(getAdminCacheScope(), 'catalog:categories');
 
 export const productsService = {
   async getStoreProducts() {
+    const warmedProducts = await getWarmedStoreProducts();
+    if (warmedProducts) return warmedProducts;
+
     const response = await api.get("/produtos_loja");
     return toList(response.data);
   },
@@ -109,6 +119,30 @@ export const productsService = {
     })}`;
     const cached = options.forceRefresh ? null : getSessionItem<ReturnType<typeof toPaginatedProducts>>(cacheKey);
     if (cached) return cached;
+
+    const canUseWarmedCatalog = !options.forceRefresh
+      && !params.search?.trim()
+      && !params.categoryId
+      && !params.promoOnly;
+    if (canUseWarmedCatalog) {
+      const warmedProducts = await getWarmedStoreProducts();
+      if (warmedProducts) {
+        const filteredProducts = warmedProducts.filter((product: any) => {
+          const productIsActive = product.ativo_na_loja ?? product.ativo;
+          if (active !== undefined && Boolean(productIsActive) !== active) return false;
+          if (params.purchaseMode && product.modo_compra !== params.purchaseMode) return false;
+          return true;
+        });
+        const offset = (params.page - 1) * params.perPage;
+        return {
+          products: filteredProducts.slice(offset, offset + params.perPage),
+          total: filteredProducts.length,
+          page: params.page,
+          perPage: params.perPage,
+          totalPages: Math.max(1, Math.ceil(filteredProducts.length / params.perPage)),
+        };
+      }
+    }
 
     const response = await api.get("/produtos_loja", {
       params: {
@@ -185,7 +219,10 @@ export const productsService = {
     // por departamento, categoria e subcategoria.
     // Não há cache aqui: categorias variam conforme vínculos e não podem vazar
     // de uma loja ou sessão anterior para o módulo atual.
-    void options;
+    if (!options.forceRefresh) {
+      const warmedCategories = await getWarmedCategories();
+      if (warmedCategories) return warmedCategories;
+    }
     const categoriesEndpoint = "/categorias";
     const firstResponse = await api.get(categoriesEndpoint, {
       params: { ativa: true, apenas_vinculadas: true, page: 1, per_page: 100 },
