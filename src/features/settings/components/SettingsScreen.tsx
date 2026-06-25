@@ -15,7 +15,6 @@ import {
   Map,
   Palette,
   Edit2,
-  KeyRound,
 } from "lucide-react";
 import api from '@/shared/lib/api';
 import LoadingModal from '@/shared/components/ui/LoadingModal';
@@ -24,6 +23,51 @@ import { getApiList } from '@/shared/utils/apiData';
 import { SecurityMfaPanel } from './SecurityMfaPanel';
 
 const PRIMARY = "#122a4c";
+const emptyPagarmeRecipientForm = {
+  type: "individual",
+  name: "",
+  company_name: "",
+  trading_name: "",
+  email: "",
+  document: "",
+  site_url: "",
+  mother_name: "",
+  birthdate: "",
+  monthly_income: "",
+  professional_occupation: "",
+  annual_revenue: "",
+  corporation_type: "",
+  founding_date: "",
+  phone_ddd: "",
+  phone_number: "",
+  address_street: "",
+  address_number: "",
+  address_complement: "",
+  address_neighborhood: "",
+  address_city: "",
+  address_state: "",
+  address_zip_code: "",
+  address_reference: "",
+  legal_name: "",
+  legal_email: "",
+  legal_document: "",
+  legal_mother_name: "",
+  legal_birthdate: "",
+  legal_monthly_income: "",
+  legal_occupation: "",
+  bank_holder_name: "",
+  bank_holder_document: "",
+  bank_holder_type: "individual",
+  bank_code: "",
+  branch_number: "",
+  branch_check_digit: "",
+  account_number: "",
+  account_check_digit: "",
+  account_type: "checking",
+  transfer_enabled: true,
+  transfer_interval: "Daily",
+  transfer_day: "0",
+};
 
 const sections = [
   "Dados do Mercado",
@@ -49,7 +93,8 @@ export function SettingsScreen() {
   const [saved, setSaved] = useState(false);
   const [mpStatus, setMpStatus] = useState<any>(null);
   const [pagarmeStatus, setPagarmeStatus] = useState<any>(null);
-  const [pagarmeCredentials, setPagarmeCredentials] = useState({ public_key: "", secret_key: "", webhook_secret: "" });
+  const [pagarmeRecipient, setPagarmeRecipient] = useState<any>(null);
+  const [pagarmeRecipientForm, setPagarmeRecipientForm] = useState<any>(emptyPagarmeRecipientForm);
   const [loadingMp, setLoadingMp] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -123,6 +168,16 @@ export function SettingsScreen() {
       console.error("Erro ao verificar gateways:", error);
     } finally {
       setLoadingMp(false);
+    }
+  }, [lojaId]);
+
+  const loadPagarmeRecipient = useCallback(async () => {
+    if (!lojaId) return;
+    try {
+      const response = await api.get("/payment-gateways/loja/pagarme/recipient");
+      setPagarmeRecipient(response.data?.data || null);
+    } catch (error) {
+      console.error("Erro ao carregar recebedor Pagar.me:", error);
     }
   }, [lojaId]);
 
@@ -225,8 +280,9 @@ export function SettingsScreen() {
   useEffect(() => {
     loadData();
     checkGatewayConnections();
+    loadPagarmeRecipient();
     loadAreasEntrega();
-  }, [loadData, checkGatewayConnections, loadAreasEntrega]);
+  }, [loadData, checkGatewayConnections, loadPagarmeRecipient, loadAreasEntrega]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -376,17 +432,105 @@ export function SettingsScreen() {
     }
   };
 
-  const handleSavePagarme = async () => {
+  const updatePagarmeRecipientForm = (field: string, value: any) => {
+    setPagarmeRecipientForm((prev: any) => ({ ...prev, [field]: value }));
+  };
+
+  const buildPagarmeRecipientPayload = () => {
+    const address = {
+      street: pagarmeRecipientForm.address_street,
+      complementary: pagarmeRecipientForm.address_complement || "Sem complemento",
+      street_number: pagarmeRecipientForm.address_number,
+      neighborhood: pagarmeRecipientForm.address_neighborhood,
+      city: pagarmeRecipientForm.address_city,
+      state: pagarmeRecipientForm.address_state,
+      zip_code: String(pagarmeRecipientForm.address_zip_code || "").replace(/\D/g, ""),
+      reference_point: pagarmeRecipientForm.address_reference || "Nao informado",
+    };
+    const phone = {
+      ddd: String(pagarmeRecipientForm.phone_ddd || "").replace(/\D/g, ""),
+      number: String(pagarmeRecipientForm.phone_number || "").replace(/\D/g, ""),
+      type: "mobile",
+    };
+    const isCompany = pagarmeRecipientForm.type === "corporation";
+    const register_information = isCompany
+      ? {
+          company_name: pagarmeRecipientForm.company_name,
+          trading_name: pagarmeRecipientForm.trading_name,
+          email: pagarmeRecipientForm.email,
+          document: String(pagarmeRecipientForm.document || "").replace(/\D/g, ""),
+          type: "corporation",
+          site_url: pagarmeRecipientForm.site_url,
+          annual_revenue: Number(pagarmeRecipientForm.annual_revenue || 0),
+          corporation_type: pagarmeRecipientForm.corporation_type || "LTDA",
+          founding_date: pagarmeRecipientForm.founding_date,
+          main_address: address,
+          phone_numbers: [phone],
+          managing_partners: [{
+            name: pagarmeRecipientForm.legal_name,
+            email: pagarmeRecipientForm.legal_email,
+            document: String(pagarmeRecipientForm.legal_document || "").replace(/\D/g, ""),
+            type: "individual",
+            mother_name: pagarmeRecipientForm.legal_mother_name,
+            birthdate: pagarmeRecipientForm.legal_birthdate,
+            monthly_income: Number(pagarmeRecipientForm.legal_monthly_income || 0),
+            professional_occupation: pagarmeRecipientForm.legal_occupation,
+            self_declared_legal_representative: true,
+            address,
+            phone_numbers: [phone],
+          }],
+        }
+      : {
+          name: pagarmeRecipientForm.name,
+          email: pagarmeRecipientForm.email,
+          document: String(pagarmeRecipientForm.document || "").replace(/\D/g, ""),
+          type: "individual",
+          site_url: pagarmeRecipientForm.site_url,
+          mother_name: pagarmeRecipientForm.mother_name,
+          birthdate: pagarmeRecipientForm.birthdate,
+          monthly_income: Number(pagarmeRecipientForm.monthly_income || 0),
+          professional_occupation: pagarmeRecipientForm.professional_occupation,
+          address,
+          phone_numbers: [phone],
+        };
+
+    return {
+      register_information,
+      default_bank_account: {
+        holder_name: pagarmeRecipientForm.bank_holder_name,
+        holder_type: pagarmeRecipientForm.bank_holder_type,
+        holder_document: String(pagarmeRecipientForm.bank_holder_document || "").replace(/\D/g, ""),
+        bank: String(pagarmeRecipientForm.bank_code || "").replace(/\D/g, ""),
+        branch_number: String(pagarmeRecipientForm.branch_number || "").replace(/\D/g, ""),
+        branch_check_digit: String(pagarmeRecipientForm.branch_check_digit || "").replace(/\D/g, ""),
+        account_number: String(pagarmeRecipientForm.account_number || "").replace(/\D/g, ""),
+        account_check_digit: String(pagarmeRecipientForm.account_check_digit || "").replace(/\D/g, ""),
+        type: pagarmeRecipientForm.account_type,
+      },
+      transfer_settings: {
+        transfer_enabled: Boolean(pagarmeRecipientForm.transfer_enabled),
+        transfer_interval: pagarmeRecipientForm.transfer_interval,
+        transfer_day: Number(pagarmeRecipientForm.transfer_day || 0),
+      },
+      metadata: { origin: "admin_store_dashboard" },
+    };
+  };
+
+  const handleSavePagarmeRecipient = async () => {
     if (!lojaId) return;
     try {
       setLoadingMp(true);
       setError("");
-      await api.put(`/payment-gateways/pagarme/${lojaId}/credentials`, pagarmeCredentials);
-      setPagarmeCredentials({ public_key: "", secret_key: "", webhook_secret: "" });
+      const payload = buildPagarmeRecipientPayload();
+      const response = pagarmeRecipient?.recipient_id
+        ? await api.put("/payment-gateways/loja/pagarme/recipient", payload)
+        : await api.post("/payment-gateways/loja/pagarme/recipient", payload);
+      setPagarmeRecipient(response.data?.data || null);
+      setPagarmeRecipientForm(emptyPagarmeRecipientForm);
       await checkGatewayConnections();
-      showSystemNotice("Credenciais Pagar.me validadas e salvas.");
+      showSystemNotice("Dados de recebimento Stone/Pagar.me enviados.");
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || "Não foi possível validar as credenciais Pagar.me.");
+      setError(err.response?.data?.error?.message || "Não foi possível salvar o recebedor Pagar.me.");
     } finally {
       setLoadingMp(false);
     }
@@ -1082,54 +1226,121 @@ export function SettingsScreen() {
                   <div className="flex items-center gap-2">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#00a868] text-xs font-bold text-white">ST</div>
                     <div>
-                      <h4 className="text-sm font-semibold text-gray-800">Stone (Pagar.me)</h4>
-                      <p className="text-xs text-gray-500">Checkout transparente com PIX e cartão</p>
+                      <h4 className="text-sm font-semibold text-gray-800">Dados para recebimento Stone/Pagar.me</h4>
+                      <p className="text-xs text-gray-500">Cadastro do recebedor da loja, sem chaves secretas</p>
                     </div>
                   </div>
                   <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${pagarmeStatus?.connected ? "border-green-100 bg-green-50 text-green-600" : "border-amber-100 bg-amber-50 text-amber-600"}`}>
                     {pagarmeStatus?.connected ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-                    {pagarmeStatus?.connected ? "Conectado" : "Não conectado"}
+                    {pagarmeRecipient?.status || "Não cadastrado"}
                   </div>
                 </div>
-                <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
-                  {pagarmeStatus?.connected && (
-                    <p className="text-xs text-gray-600">Ambiente: <strong>{pagarmeStatus.environment === "sandbox" ? "Sandbox" : "Produção"}</strong> · chave final {pagarmeStatus.public_key_suffix}</p>
-                  )}
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={pagarmeCredentials.public_key}
-                      onChange={(event) => setPagarmeCredentials((prev) => ({ ...prev, public_key: event.target.value }))}
-                      placeholder="Public key (pk_test_... ou pk_live_...)"
-                      className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm"
-                    />
-                    <input
-                      type="password"
-                      autoComplete="new-password"
-                      value={pagarmeCredentials.secret_key}
-                      onChange={(event) => setPagarmeCredentials((prev) => ({ ...prev, secret_key: event.target.value }))}
-                      placeholder="Secret key (sk_test_... ou sk_live_...)"
-                      className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm"
-                    />
+
+                <div className="mb-4 grid gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4 text-xs text-gray-600 md:grid-cols-3">
+                  <div><span className="text-gray-400">Ambiente</span><br /><strong>{pagarmeStatus?.environment === "sandbox" ? "Sandbox" : "Produção"}</strong></div>
+                  <div><span className="text-gray-400">Documento</span><br /><strong>{pagarmeRecipient?.document_last4 ? `final ${pagarmeRecipient.document_last4}` : "pendente"}</strong></div>
+                  <div><span className="text-gray-400">Conta bancária</span><br /><strong>{pagarmeRecipient?.bank_account_last4 ? `final ${pagarmeRecipient.bank_account_last4}` : "pendente"}</strong></div>
+                </div>
+
+                <div className="space-y-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <select value={pagarmeRecipientForm.type} onChange={(event) => updatePagarmeRecipientForm("type", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm">
+                      <option value="individual">Pessoa física</option>
+                      <option value="corporation">Pessoa jurídica</option>
+                    </select>
+                    <input value={pagarmeRecipientForm.email} onChange={(event) => updatePagarmeRecipientForm("email", event.target.value)} placeholder="E-mail" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                    <input value={pagarmeRecipientForm.document} onChange={(event) => updatePagarmeRecipientForm("document", event.target.value)} placeholder="CPF/CNPJ" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                    <input value={pagarmeRecipientForm.site_url} onChange={(event) => updatePagarmeRecipientForm("site_url", event.target.value)} placeholder="Site/URL da loja" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
                   </div>
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={pagarmeCredentials.webhook_secret}
-                    onChange={(event) => setPagarmeCredentials((prev) => ({ ...prev, webhook_secret: event.target.value }))}
-                    placeholder="Segredo do webhook (opcional)"
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleSavePagarme()}
-                    disabled={loadingMp || !pagarmeCredentials.public_key || !pagarmeCredentials.secret_key}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#00a868] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    <KeyRound className="h-4 w-4" />
-                    Validar e salvar chaves
-                  </button>
+
+                  {pagarmeRecipientForm.type === "corporation" ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <input value={pagarmeRecipientForm.company_name} onChange={(event) => updatePagarmeRecipientForm("company_name", event.target.value)} placeholder="Nome fantasia" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.trading_name} onChange={(event) => updatePagarmeRecipientForm("trading_name", event.target.value)} placeholder="Razão social" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.annual_revenue} onChange={(event) => updatePagarmeRecipientForm("annual_revenue", event.target.value)} placeholder="Receita anual" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.corporation_type} onChange={(event) => updatePagarmeRecipientForm("corporation_type", event.target.value)} placeholder="Tipo da empresa (LTDA)" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input type="date" value={pagarmeRecipientForm.founding_date} onChange={(event) => updatePagarmeRecipientForm("founding_date", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <input value={pagarmeRecipientForm.name} onChange={(event) => updatePagarmeRecipientForm("name", event.target.value)} placeholder="Nome completo" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.mother_name} onChange={(event) => updatePagarmeRecipientForm("mother_name", event.target.value)} placeholder="Nome da mãe" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input type="date" value={pagarmeRecipientForm.birthdate} onChange={(event) => updatePagarmeRecipientForm("birthdate", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.monthly_income} onChange={(event) => updatePagarmeRecipientForm("monthly_income", event.target.value)} placeholder="Renda mensal" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.professional_occupation} onChange={(event) => updatePagarmeRecipientForm("professional_occupation", event.target.value)} placeholder="Ocupação" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                    </div>
+                  )}
+
+                  {pagarmeRecipientForm.type === "corporation" && (
+                    <div>
+                      <h5 className="mb-2 text-xs font-semibold uppercase text-gray-400">Representante legal</h5>
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <input value={pagarmeRecipientForm.legal_name} onChange={(event) => updatePagarmeRecipientForm("legal_name", event.target.value)} placeholder="Nome" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                        <input value={pagarmeRecipientForm.legal_email} onChange={(event) => updatePagarmeRecipientForm("legal_email", event.target.value)} placeholder="E-mail" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                        <input value={pagarmeRecipientForm.legal_document} onChange={(event) => updatePagarmeRecipientForm("legal_document", event.target.value)} placeholder="CPF" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                        <input value={pagarmeRecipientForm.legal_mother_name} onChange={(event) => updatePagarmeRecipientForm("legal_mother_name", event.target.value)} placeholder="Nome da mãe" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                        <input type="date" value={pagarmeRecipientForm.legal_birthdate} onChange={(event) => updatePagarmeRecipientForm("legal_birthdate", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                        <input value={pagarmeRecipientForm.legal_monthly_income} onChange={(event) => updatePagarmeRecipientForm("legal_monthly_income", event.target.value)} placeholder="Renda mensal" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                        <input value={pagarmeRecipientForm.legal_occupation} onChange={(event) => updatePagarmeRecipientForm("legal_occupation", event.target.value)} placeholder="Ocupação" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <h5 className="mb-2 text-xs font-semibold uppercase text-gray-400">Endereço e telefone</h5>
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <input value={pagarmeRecipientForm.phone_ddd} onChange={(event) => updatePagarmeRecipientForm("phone_ddd", event.target.value)} placeholder="DDD" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.phone_number} onChange={(event) => updatePagarmeRecipientForm("phone_number", event.target.value)} placeholder="Telefone" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_street} onChange={(event) => updatePagarmeRecipientForm("address_street", event.target.value)} placeholder="Rua" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_number} onChange={(event) => updatePagarmeRecipientForm("address_number", event.target.value)} placeholder="Número" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_complement} onChange={(event) => updatePagarmeRecipientForm("address_complement", event.target.value)} placeholder="Complemento" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_neighborhood} onChange={(event) => updatePagarmeRecipientForm("address_neighborhood", event.target.value)} placeholder="Bairro" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_city} onChange={(event) => updatePagarmeRecipientForm("address_city", event.target.value)} placeholder="Cidade" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_state} onChange={(event) => updatePagarmeRecipientForm("address_state", event.target.value.toUpperCase())} placeholder="UF" maxLength={2} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_zip_code} onChange={(event) => updatePagarmeRecipientForm("address_zip_code", event.target.value)} placeholder="CEP" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.address_reference} onChange={(event) => updatePagarmeRecipientForm("address_reference", event.target.value)} placeholder="Ponto de referência" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm md:col-span-3" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="mb-2 text-xs font-semibold uppercase text-gray-400">Conta bancária</h5>
+                    <div className="grid gap-3 md:grid-cols-4">
+                      <input value={pagarmeRecipientForm.bank_holder_name} onChange={(event) => updatePagarmeRecipientForm("bank_holder_name", event.target.value)} placeholder="Titular" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.bank_holder_document} onChange={(event) => updatePagarmeRecipientForm("bank_holder_document", event.target.value)} placeholder="CPF/CNPJ do titular" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <select value={pagarmeRecipientForm.bank_holder_type} onChange={(event) => updatePagarmeRecipientForm("bank_holder_type", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm">
+                        <option value="individual">Titular PF</option>
+                        <option value="company">Titular PJ</option>
+                      </select>
+                      <input value={pagarmeRecipientForm.bank_code} onChange={(event) => updatePagarmeRecipientForm("bank_code", event.target.value)} placeholder="Banco" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.branch_number} onChange={(event) => updatePagarmeRecipientForm("branch_number", event.target.value)} placeholder="Agência" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.branch_check_digit} onChange={(event) => updatePagarmeRecipientForm("branch_check_digit", event.target.value)} placeholder="Dígito agência" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.account_number} onChange={(event) => updatePagarmeRecipientForm("account_number", event.target.value)} placeholder="Conta" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <input value={pagarmeRecipientForm.account_check_digit} onChange={(event) => updatePagarmeRecipientForm("account_check_digit", event.target.value)} placeholder="Dígito conta" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                      <select value={pagarmeRecipientForm.account_type} onChange={(event) => updatePagarmeRecipientForm("account_type", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm">
+                        <option value="checking">Corrente</option>
+                        <option value="savings">Poupança</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t border-gray-200 pt-4 md:flex-row md:items-center md:justify-between">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <input type="checkbox" checked={pagarmeRecipientForm.transfer_enabled} onChange={(event) => updatePagarmeRecipientForm("transfer_enabled", event.target.checked)} />
+                      Transferência automática habilitada
+                    </label>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <select value={pagarmeRecipientForm.transfer_interval} onChange={(event) => updatePagarmeRecipientForm("transfer_interval", event.target.value)} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm">
+                        <option value="Daily">Diária</option>
+                        <option value="Weekly">Semanal</option>
+                        <option value="Monthly">Mensal</option>
+                      </select>
+                      <input value={pagarmeRecipientForm.transfer_day} onChange={(event) => updatePagarmeRecipientForm("transfer_day", event.target.value)} placeholder="Dia" className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm" />
+                    </div>
+                    <button type="button" onClick={() => void handleSavePagarmeRecipient()} disabled={loadingMp} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#00a868] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                      <Save className="h-4 w-4" />
+                      Salvar recebedor
+                    </button>
+                  </div>
                 </div>
               </div>
 
