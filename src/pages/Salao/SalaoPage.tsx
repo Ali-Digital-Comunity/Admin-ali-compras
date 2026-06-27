@@ -1603,6 +1603,11 @@ export function SalaoPage() {
                     <div className="text-sm text-gray-500">
                       Mesa {item.mesa?.numero} · {item.numero_comanda}
                     </div>
+                    {item.nome_variacao && (
+                      <div className="mt-1 text-xs font-semibold text-slate-700">
+                        Variação: {item.nome_variacao}
+                      </div>
+                    )}
                   </div>
                   <span
                     className={`rounded-full border px-2 py-1 text-xs font-bold ${getSalaoStatusStyle(item.status).badge}`}
@@ -1610,6 +1615,34 @@ export function SalaoPage() {
                     {getSalaoStatusStyle(item.status).label}
                   </span>
                 </div>
+                {arrayOrEmpty<any>(item.selecoes).length > 0 && (
+                  <div className="mt-3 rounded-lg border border-blue-100 bg-white/80 px-3 py-2">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
+                      Adicionais e opções
+                    </div>
+                    <div className="mt-1.5 space-y-1">
+                      {arrayOrEmpty<any>(item.selecoes).map((selection, index) => {
+                        const quantity = Number(selection.quantidade || 1);
+                        const extra = Number(selection.preco_contribuicao || 0);
+                        return (
+                          <div key={selection.id || `${item.id}-selection-${index}`} className="flex items-start justify-between gap-3 text-xs text-slate-700">
+                            <span className="min-w-0 break-words">
+                              <span className="font-semibold">{selection.nome_grupo || "Opção"}:</span>{" "}
+                              {selection.nome_opcao || "Opção"}
+                              {quantity > 1 ? ` x${quantity}` : ""}
+                              {selection.fracao ? ` (${selection.fracao})` : ""}
+                            </span>
+                            {extra > 0 && (
+                              <span className="shrink-0 font-semibold text-slate-900">
+                                + R$ {formatMoney(extra)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {String(item.observacoes || "").trim() && (
                   <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-white/80 px-3 py-2 text-sm text-amber-950">
                     <MessageSquareText className="mt-0.5 h-4 w-4 flex-none text-amber-700" />
