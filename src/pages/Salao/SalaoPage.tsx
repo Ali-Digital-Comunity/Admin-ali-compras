@@ -96,16 +96,32 @@ const getMesaPendingAction = (mesa: any, comanda?: any) => {
   const activeComanda = mesa?.comanda_aberta || comanda;
 
   if (mesa?.solicitacao_abertura || mesa?.destaque === "abertura_pendente") {
-    return { label: "Aprovar abertura", className: "border-amber-200 bg-amber-50 text-amber-800" };
+    return {
+      label: "Aprovar abertura",
+      className: "border-amber-200 bg-white/70 text-amber-900",
+      cardClass: "border-amber-300 bg-amber-100 ring-2 ring-amber-200",
+    };
   }
   if (activeComanda?.status === "aguardando_conta" || mesa?.destaque === "aguardando_conta") {
-    return { label: "Conta solicitada", className: "border-blue-200 bg-blue-50 text-blue-800" };
+    return {
+      label: "Conta solicitada",
+      className: "border-blue-200 bg-white/70 text-blue-900",
+      cardClass: "border-blue-300 bg-blue-100 ring-2 ring-blue-200",
+    };
   }
   if (activeComanda?.status === "fechada" || mesa?.destaque === "aguardando_pagamento") {
-    return { label: "Confirmar pagamento", className: "border-violet-200 bg-violet-50 text-violet-800" };
+    return {
+      label: "Confirmar pagamento",
+      className: "border-violet-200 bg-white/70 text-violet-900",
+      cardClass: "border-violet-300 bg-violet-100 ring-2 ring-violet-200",
+    };
   }
   if (Number(activeComanda?.novos_itens || 0) > 0 || mesa?.destaque === "novo_pedido") {
-    return { label: "Novo pedido no KDS", className: "border-emerald-200 bg-emerald-50 text-emerald-800" };
+    return {
+      label: "Novo pedido no KDS",
+      className: "border-emerald-200 bg-white/70 text-emerald-900",
+      cardClass: "border-emerald-300 bg-emerald-100 ring-2 ring-emerald-200",
+    };
   }
   return null;
 };
@@ -163,6 +179,16 @@ const escapePrintHtml = (value: unknown) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+
+const salaoItemAuthorLabel = (item: any) => {
+  if (item?.autor_label) return item.autor_label;
+  if (item?.participante_id) return item?.adicionado_por || item?.autor_nome || "Cliente";
+  if (item?.enviado_por === "garcom") return `Pedido adicionado pelo garçom - ${item?.adicionado_por || item?.autor_nome || "Garçom"}`;
+  return `Pedido adicionado pelo atendimento - ${item?.adicionado_por || item?.autor_nome || "Atendimento"}`;
+};
+
+const salaoStaffGroupLabel = (item: any) =>
+  salaoItemAuthorLabel(item).replace(/^Pedido adicionado/, "Pedidos adicionados");
 
 const productName = (product: any) =>
   product?.nome || product?.produto?.nome || "Produto";
@@ -639,13 +665,17 @@ export function SalaoPage() {
 
     const participants = arrayOrEmpty<any>(comanda.participantes);
     const participantNames = new Map(participants.map((participant) => [participant.id, participant.nome_snapshot || participant.nome || "Cliente"]));
-    const groups = new Map<string, { name: string; items: any[]; total: number }>();
+    const groups = new Map<string, { name: string; items: any[]; total: number; staff: boolean }>();
     for (const item of arrayOrEmpty<any>(comanda.itens).filter((item) => item.status !== "cancelado")) {
-      const key = item.participante_id || "atendimento";
+      const isStaffItem = !item.participante_id;
+      const key = isStaffItem
+        ? `${item.enviado_por === "garcom" ? "garcom" : "atendimento"}:${item.adicionado_por || item.autor_nome || "Atendimento"}`
+        : item.participante_id;
       const group = groups.get(key) || {
-        name: participantNames.get(key) || item.adicionado_por || "Atendimento",
+        name: isStaffItem ? salaoStaffGroupLabel(item) : participantNames.get(key) || salaoItemAuthorLabel(item),
         items: [],
         total: 0,
+        staff: isStaffItem,
       };
       group.items.push(item);
       group.total += Number(item.preco_total || 0);
@@ -660,7 +690,7 @@ export function SalaoPage() {
           ${arrayOrEmpty<any>(item.selecoes).map((selection) => `<p class="option">${escapePrintHtml(selection.nome_grupo)}: ${escapePrintHtml(selection.nome_opcao)}</p>`).join("")}
           ${item.observacoes ? `<p class="obs">Obs: ${escapePrintHtml(item.observacoes)}</p>` : ""}
         `).join("")}
-        <div class="row subtotal"><span>Total de ${escapePrintHtml(group.name)}</span><span>R$ ${formatMoney(group.total)}</span></div>
+        <div class="row subtotal"><span>${group.staff ? "Subtotal dos pedidos lançados" : `Total de ${escapePrintHtml(group.name)}`}</span><span>R$ ${formatMoney(group.total)}</span></div>
       </section>
     `).join("");
     const total = arrayOrEmpty<any>(comanda.itens)
@@ -683,7 +713,7 @@ export function SalaoPage() {
           <span class="tag">MESA ${escapePrintHtml(comanda.mesa?.numero || "-")}</span>
         </div>
         <div class="divider"></div>
-        <p class="bold">ITENS POR PARTICIPANTE:</p>
+        <p class="bold">ITENS DA COMANDA:</p>
         ${groupedItems || '<p>Nenhum item lançado.</p>'}
         <div class="divider-solid"></div>
         <div class="row-total"><span>TOTAL GERAL</span><span>R$ ${formatMoney(total)}</span></div>
@@ -808,17 +838,10 @@ export function SalaoPage() {
                       handleMesaClick();
                     }
                   }}
-                  className={`min-h-32 rounded-xl border bg-white p-3 shadow-sm transition-all ${
+                  className={`min-h-32 rounded-xl border p-3 shadow-sm transition-all ${
                     realtimeMesaId === mesa.id
-                      ? "border-emerald-500 ring-4 ring-emerald-200 animate-pulse"
-                      :
-                    mesa.destaque === "abertura_pendente"
-                      ? "border-amber-300 ring-2 ring-amber-100"
-                      : mesa.destaque === "novo_pedido"
-                        ? "border-emerald-300 ring-2 ring-emerald-100"
-                        : mesa.destaque === "aguardando_conta" || mesa.destaque === "aguardando_pagamento"
-                          ? "border-blue-300 ring-2 ring-blue-100"
-                          : "border-gray-200"
+                      ? "border-emerald-500 bg-emerald-100 ring-4 ring-emerald-200 animate-pulse"
+                      : pendingAction?.cardClass || "border-gray-200 bg-white"
                   } ${hasOpenComanda ? "cursor-pointer hover:border-blue-300 hover:shadow-md" : ""}`}
                 >
                   <div className="flex items-start justify-between">
@@ -837,7 +860,7 @@ export function SalaoPage() {
                     </div>
                   )}
                   {mesa.comanda_aberta && (
-                    <div className="mt-3 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                    <div className={`mt-3 rounded-md px-3 py-2 text-xs text-gray-700 ${pendingAction ? "bg-white/60" : "bg-gray-50"}`}>
                       <div>R$ {formatMoney(mesa.comanda_aberta.total)}</div>
                     </div>
                   )}
@@ -870,7 +893,11 @@ export function SalaoPage() {
                   key={comanda.id}
                   onClick={() => void selectComanda(comanda)}
                   className={`min-h-16 w-full rounded-xl border p-3 text-left shadow-sm hover:border-blue-200 active:scale-[0.99] sm:min-h-20 sm:p-4 ${
-                    selectedComanda?.id === comanda.id ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : getSalaoStatusStyle(comanda.status).card
+                    pendingAction
+                      ? `${pendingAction.cardClass} ${selectedComanda?.id === comanda.id ? "ring-4 ring-blue-200" : ""}`
+                      : selectedComanda?.id === comanda.id
+                        ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100"
+                        : getSalaoStatusStyle(comanda.status).card
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -1021,7 +1048,9 @@ export function SalaoPage() {
                                   {getSalaoStatusStyle(item.status).label}
                                 </span>
                               </div>
-                              {item.adicionado_por && <div className="mt-1 text-xs font-semibold text-blue-700">Adicionado por {item.adicionado_por}</div>}
+                              {(item.adicionado_por || item.autor_label) && (
+                                <div className="mt-1 text-xs font-semibold text-blue-700">{salaoItemAuthorLabel(item)}</div>
+                              )}
                               {item.observacoes && <div className="mt-1 text-xs text-gray-500">{item.observacoes}</div>}
                             </div>
                             <div className="text-sm font-semibold text-gray-900">R$ {formatMoney(item.preco_total)}</div>
