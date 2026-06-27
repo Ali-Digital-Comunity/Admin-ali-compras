@@ -108,7 +108,12 @@ export const canChangeDeliveryCourier = (delivery: any) =>
   !delivery || ["aguardando", "atribuida"].includes(delivery.status);
 
 export const isDeliveryOrder = (order: any) =>
-  (order?.tipo_pedido || order?.type || "").toLowerCase() === "entrega";
+  ["entrega", "delivery"].includes(
+    cleanText(order?.tipo_pedido || order?.type || order?.tipo || order?.order_type)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase(),
+  );
 
 export const getOrderNeighborhood = (order: any) =>
   firstText(

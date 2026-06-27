@@ -1739,18 +1739,23 @@ export function OrdersScreen() {
       new Map(ordersToAssign.map((order) => [order.id, order])).values(),
     );
     const activeOrders = uniqueOrders.filter(
-      (order) =>
-        canOrderProceedForFulfillment(order) &&
-        !assignedOrderIds.has(order.id) &&
-        !hasPendingCancellationRequest(order) &&
-        ![
+      (order) => {
+        const orderPayments =
+          selected?.id === order.id ? selectedPayments : [];
+        return (
+          canOrderProceedForFulfillment(order, orderPayments) &&
+          !assignedOrderIds.has(order.id) &&
+          !hasPendingCancellationRequest(order) &&
+          ![
           "entregue",
           "nao_entregue",
           "cancelado",
           "Entregue",
           "Não entregue",
           "Cancelado",
-        ].includes(order.status),
+          ].includes(order.status)
+        );
+      },
     );
     if (activeOrders.length === 0) {
       showSystemNotice(
