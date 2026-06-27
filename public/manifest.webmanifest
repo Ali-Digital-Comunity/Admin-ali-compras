@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "APP - Admin Sao Jorge",
-  "short_name": "Admin Sao Jorge",
-  "description": "Painel administrativo do Sao Jorge Super.",
+  "name": "Entregaí Admin",
+  "short_name": "Entregaí Admin",
+  "description": "Painel administrativo Entregaí.",
   "lang": "pt-BR",
   "dir": "ltr",
   "start_url": "/",
@@ -11,7 +11,7 @@
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
-  "theme_color": "#0f172a",
+  "theme_color": "#122a4c",
   "categories": ["business", "productivity", "shopping"],
   "icons": [
     {

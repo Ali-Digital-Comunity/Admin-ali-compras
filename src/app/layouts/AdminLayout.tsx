@@ -3,13 +3,12 @@ import { Outlet, useNavigate, useLocation, Navigate } from 'react-router';
 import {
   LayoutDashboard, ShoppingCart, Package,  Grid3X3, Tag, Image, Users, Truck, User,
   Ticket, CreditCard, BarChart3, UserCog, Settings, Bell, Menu, X, LogOut,
-  ChevronRight, Store, Key, Bike, UtensilsCrossed
+  ChevronRight, Key, Bike, UtensilsCrossed
 } from 'lucide-react';
 import api from '@/shared/lib/api';
+import logoSymbol from '@/assets/brand/logo-entregai.svg';
 
 const PRIMARY = '#122a4c';
-const PRIMARY_LIGHT = '#1a3d6e';
-const PRIMARY_LIGHTER = '#1e4d87';
 
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', slug: 'dashboard' },
@@ -199,12 +198,12 @@ export function AdminLayout() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10">
-          <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
-            <Store className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center flex-shrink-0 p-1.5">
+            <img src={logoSymbol} alt="" className="h-full w-full object-contain" />
           </div>
           <div>
             <div className="text-white font-semibold text-sm leading-tight truncate max-w-[140px]">{storeName}</div>
-            <div className="text-white/50 text-xs">Painel Admin</div>
+            <div className="text-white/50 text-xs">Entregaí Admin</div>
           </div>
           <button
             className="ml-auto lg:hidden text-white/60 hover:text-white"

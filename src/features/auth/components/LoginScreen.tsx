@@ -1,18 +1,25 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { Store, Eye, EyeOff, Lock, Mail, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, AlertCircle, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { loginSchema } from '../schemas/loginSchema';
 import { authService } from '../services/authService';
 import { MfaLoginStep } from './MfaLoginStep';
 import type { LoginResponse } from '../types/auth';
+import logoName from '@/assets/brand/nome-entregai.svg';
+import logoSymbol from '@/assets/brand/logo-entregai.svg';
 
 const PRIMARY = '#122a4c';
 const PLATFORM_BRANDING = {
-  nome: 'Painel Administrativo',
+  nome: 'Entregaí Admin',
   slogan: 'Gestão completa da operação da sua loja',
   cor_primaria: PRIMARY,
   cor_secundaria: '#16a34a'
+};
+
+const showPostLoginSplash = () => {
+  sessionStorage.setItem('entregai_post_login_splash', '1');
+  window.dispatchEvent(new Event('entregai-post-login-splash'));
 };
 
 export function LoginScreen() {
@@ -49,6 +56,7 @@ export function LoginScreen() {
             }}
             onComplete={(session) => {
               persistSession(session);
+              showPostLoginSplash();
               navigate('/dashboard');
             }}
           />
@@ -135,6 +143,7 @@ export function LoginScreen() {
           } catch (driverLoginError) {
             console.warn('Driver login fallback failed, keeping tenant login response.', driverLoginError);
           } finally {
+            showPostLoginSplash();
             navigate('/driver');
             return;
           }
@@ -145,6 +154,7 @@ export function LoginScreen() {
           return;
         }
 
+        showPostLoginSplash();
         navigate('/dashboard');
       } else {
         setError('Falha no login: Resposta inválida.');
@@ -166,16 +176,16 @@ export function LoginScreen() {
       >
         <div className="max-w-lg">
           <div className="mb-10">
-            <div className="h-24 w-24 rounded-2xl bg-white/15 flex items-center justify-center border border-white/15">
-              <Store className="w-12 h-12 text-white" />
+            <div className="h-24 w-24 rounded-2xl bg-white flex items-center justify-center border border-white/15 p-3 shadow-sm">
+              <img src={logoSymbol} alt="" className="h-full w-full object-contain" />
             </div>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-white/80 border border-white/15 bg-white/10 mb-5">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: secondaryColor }} />
-            Plataforma Administrativa
+            Entregaí Admin
           </div>
           <h1 className="text-5xl font-semibold leading-tight mb-5">
-            {PLATFORM_BRANDING.nome}
+            Entregaí
           </h1>
           <p className="text-white/75 text-xl leading-relaxed max-w-md">
             {PLATFORM_BRANDING.slogan}
@@ -188,11 +198,9 @@ export function LoginScreen() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
-              <Store className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="font-semibold text-gray-900">{PLATFORM_BRANDING.nome}</div>
+            <img src={logoSymbol} alt="" className="h-10 w-10 object-contain" />
+            <div className="min-w-0">
+              <img src={logoName} alt="Entregaí" className="h-8 w-auto object-contain" />
               <div className="text-gray-500 text-sm line-clamp-1">{PLATFORM_BRANDING.slogan}</div>
             </div>
           </div>
@@ -334,7 +342,7 @@ export function LoginScreen() {
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">
-            © 2026 Plataforma Administrativa · Todos os direitos reservados
+            © 2026 Entregaí · Todos os direitos reservados
           </p>
         </div>
       </div>
