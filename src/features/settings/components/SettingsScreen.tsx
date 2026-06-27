@@ -123,6 +123,7 @@ export function SettingsScreen() {
     descricao: "",
     tipo_estabelecimento: "mercado",
     cardapio_configuravel_ativo: false,
+    permitir_configurar_cpf_na_nota: true,
     horario_abertura: "",
     horario_fechamento: "",
     valor_minimo_pedido: 0,
@@ -130,6 +131,7 @@ export function SettingsScreen() {
     // Configurações
     permite_entrega: true,
     permite_retirada: true,
+    permitir_cpf_na_nota_cliente: true,
     exigir_pin_confirmacao_entrega: true,
     tempo_medio_entrega_minutos: 30,
     whatsapp_suporte: "",
@@ -257,6 +259,8 @@ export function SettingsScreen() {
         taxa_entrega_padrao:
           store.taxa_entrega_padrao ?? prev.taxa_entrega_padrao ?? 0,
         formas_pagamento: config.formas_pagamento || prev.formas_pagamento,
+        permitir_cpf_na_nota_cliente:
+          config.permitir_cpf_na_nota_cliente ?? prev.permitir_cpf_na_nota_cliente ?? true,
         preferencias_notificacao:
           config.preferencias_notificacao || prev.preferencias_notificacao,
         horarios:
@@ -326,6 +330,7 @@ export function SettingsScreen() {
       const configData = {
         permite_entrega: formData.permite_entrega,
         permite_retirada: formData.permite_retirada,
+        permitir_cpf_na_nota_cliente: formData.permitir_cpf_na_nota_cliente,
         exigir_pin_confirmacao_entrega: formData.exigir_pin_confirmacao_entrega,
         tempo_medio_entrega_minutos: Number(
           formData.tempo_medio_entrega_minutos,
@@ -759,6 +764,14 @@ export function SettingsScreen() {
                     {formData.cardapio_configuravel_ativo ? "Habilitado pela plataforma" : "Ainda não habilitado"}
                   </div>
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                    CPF na nota
+                  </label>
+                  <div className={`text-sm font-semibold ${formData.permitir_configurar_cpf_na_nota !== false ? "text-green-600" : "text-gray-500"}`}>
+                    {formData.permitir_configurar_cpf_na_nota !== false ? "Configurável pela loja" : "Bloqueado pela plataforma"}
+                  </div>
+                </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
                     Razão Social
@@ -1053,6 +1066,23 @@ export function SettingsScreen() {
                     className="mt-0.5 rounded"
                   />
                 </label>
+                {formData.permitir_configurar_cpf_na_nota !== false && (
+                  <label className="sm:col-span-2 flex cursor-pointer items-start justify-between gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    <span>
+                      <span className="block text-sm font-medium text-gray-800">Permitir CPF na nota no checkout</span>
+                      <span className="mt-1 block text-xs text-gray-500">
+                        Quando ativado, o cliente pode escolher informar CPF na nota ao finalizar o pedido.
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      name="permitir_cpf_na_nota_cliente"
+                      checked={formData.permitir_cpf_na_nota_cliente !== false}
+                      onChange={handleInputChange}
+                      className="mt-0.5 rounded"
+                    />
+                  </label>
+                )}
               </div>
             </div>
           )}
