@@ -13,7 +13,12 @@ const list = (response: any) => {
 const apiError = (error: any) =>
   error?.response?.data?.error?.message || error?.response?.data?.message || "Não foi possível concluir a operação.";
 const money = (value: any) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const effectivePrice = (item: any) => Number(item?.preco_promocional ?? item?.preco ?? 0);
+const effectivePrice = (item: any) => {
+  if (item?.preco_app_taxa_ativa) {
+    return Number(item?.preco_promocional_app ?? item?.preco_app ?? item?.preco_promocional ?? item?.preco ?? 0);
+  }
+  return Number(item?.preco_promocional ?? item?.preco ?? 0);
+};
 const DEFAULT_PAYMENT_METHODS = ["PIX", "Cartão de Crédito", "Cartão de Débito", "Dinheiro"];
 const PAYMENT_METHOD_VALUES: Record<string, string> = {
   "PIX": "pix",

@@ -1036,6 +1036,7 @@ export function ProductsScreen() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Produto</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Categoria</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Preço</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Preço do app</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Estoque</th>
                 <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Ações</th>
@@ -1091,6 +1092,21 @@ export function ProductsScreen() {
                       )}
                       {product.preco_promocional && (
                         <div className="text-xs text-green-600 font-medium">R$ {parseFloat(product.preco_promocional).toFixed(2).replace('.', ',')}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {product.preco_app_taxa_ativa ? (
+                        <>
+                          <div className="font-semibold text-gray-800">R$ {parseFloat(product.preco_app ?? product.preco ?? 0).toFixed(2).replace('.', ',')}</div>
+                          {product.tipo_venda === 'peso' && (
+                            <div className="text-[11px] text-gray-400">por kg</div>
+                          )}
+                          {product.preco_promocional_app && (
+                            <div className="text-xs text-green-600 font-medium">R$ {parseFloat(product.preco_promocional_app).toFixed(2).replace('.', ',')}</div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs font-medium text-gray-400">Sem taxa</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right hidden sm:table-cell">
