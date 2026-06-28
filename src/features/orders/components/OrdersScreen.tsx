@@ -143,10 +143,29 @@ const formatCashChangeInfo = (payment: any) => {
   return "";
 };
 const isCardOnDeliveryPayment = (payment: any) =>
-  (payment?.pagamento_entrega_tipo || payment?.paymentOnDeliveryMethod) === "cartao";
+  (payment?.pagamento_entrega_tipo ||
+    payment?.paymentOnDeliveryMethod ||
+    payment?.metadata?.pagamento_entrega_tipo) === "cartao";
+const normalizePaymentText = (value: any) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+const isPendingCardPaymentForDelivery = (order: any, payments: any[] = []) => {
+  const payment = getPreferredOrderPayment(order, payments);
+  const status = normalizePaymentText(getOrderPaymentStatus(order, payment));
+  const method = normalizePaymentText(getOrderPaymentMethod(order, payment));
+  return (
+    status === "pendente" &&
+    (method.includes("cartao") ||
+      isCardOnDeliveryPayment(payment) ||
+      isCardOnDeliveryPayment(order?.pagamento))
+  );
+};
 const canOrderProceedForFulfillment = (order: any, payments: any[] = []) =>
   isOrderPaid(order, payments) ||
   isOrderPendingCash(order, payments) ||
+  isPendingCardPaymentForDelivery(order, payments) ||
   order?.origem_checkout === "admin_dashboard";
 const REFUND_ACTIVE_STATUSES = new Set(["pendente", "processando", "aprovado"]);
 const ORDER_TABS = [
@@ -2182,6 +2201,14 @@ export function OrdersScreen() {
                       order,
                       orderPayments,
                     );
+                    const orderPayment = getPreferredOrderPayment(
+                      order,
+                      orderPayments,
+                    );
+                    const orderPaymentIsPending =
+                      normalizePaymentText(
+                        getOrderPaymentStatus(order, orderPayment),
+                      ) === "pendente";
                     const canSelectForDelivery =
                       isEntrega &&
                       orderCanProceed &&
@@ -2282,7 +2309,7 @@ export function OrdersScreen() {
                                     Arquivado
                                   </span>
                                 )}
-                                {!orderCanProceed && (
+                                {orderPaymentIsPending && (
                                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
                                     Pagamento pendente
                                   </span>
@@ -2585,6 +2612,14 @@ export function OrdersScreen() {
                           order,
                           orderPayments,
                         );
+                        const orderPayment = getPreferredOrderPayment(
+                          order,
+                          orderPayments,
+                        );
+                        const orderPaymentIsPending =
+                          normalizePaymentText(
+                            getOrderPaymentStatus(order, orderPayment),
+                          ) === "pendente";
                         const canSelectForDelivery =
                           orderCanProceed &&
                           !assignedOrderIds.has(order.id) &&
@@ -2678,7 +2713,7 @@ export function OrdersScreen() {
                                 >
                                   {statusDisplay}
                                 </span>
-                                {!orderCanProceed && (
+                                {orderPaymentIsPending && (
                                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
                                     Pagamento pendente
                                   </span>
