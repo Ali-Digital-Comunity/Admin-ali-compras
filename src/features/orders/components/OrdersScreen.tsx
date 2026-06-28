@@ -30,7 +30,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import api from "@/shared/lib/api";
-import { formatBrasiliaTime } from "@/shared/lib/dateTime";
+import { formatBrasiliaDate } from "@/shared/lib/dateTime";
 import {
   allStatuses,
   bairroColors,
@@ -205,6 +205,8 @@ const canTakeSalaoOrderToTable = (order: any) =>
   getOrderType(order) === "salao" &&
   getBackendStatus(order?.status || "") === "pronto" &&
   getSalaoComandaStatus(order) === "aberta";
+const formatOrderDateTime = (value: Date | string) =>
+  formatBrasiliaDate(value, { dateStyle: "short", timeStyle: "short" });
 const canSelectOrderForDeliveryAssignment = (
   order: any,
   assignedOrderIds: Set<any>,
@@ -248,6 +250,9 @@ export function OrdersScreen() {
     "lista",
   );
   const [expandedBairros, setExpandedBairros] = useState<
+    Record<string, boolean>
+  >({});
+  const [expandedListGroups, setExpandedListGroups] = useState<
     Record<string, boolean>
   >({});
   const [couriers, setCouriers] = useState<any[]>([]);
@@ -1668,6 +1673,15 @@ export function OrdersScreen() {
         selectedCustomerWhatsappMessage,
       )
     : null;
+  const getOrderStatusKey = (order: any) => getBackendStatus(order?.status || "");
+  const activeWorkStatuses = new Set([
+    "pendente",
+    "confirmado",
+    "em_separacao",
+    "pronto",
+  ]);
+  const orderStatusIs = (order: any, status: string) =>
+    getOrderStatusKey(order) === status;
   const listGroups =
     viewMode === "arquivados"
       ? [
@@ -1676,6 +1690,7 @@ export function OrdersScreen() {
             title: "Arquivados",
             description: "Pedidos arquivados manualmente",
             orders: filtered,
+            defaultExpanded: true,
           },
         ]
       : [
@@ -1684,46 +1699,65 @@ export function OrdersScreen() {
             title: "Cancelamentos para análise",
             description: "Pedidos bloqueados até a decisão da loja",
             orders: filtered.filter(hasPendingCancellationRequest),
+            defaultExpanded: true,
           },
           {
             key: "andamento",
             title: "Em andamento",
-            description: "Pedidos que ainda exigem ação",
+            description: "Recebidos, confirmados, em separação e prontos",
             orders: filtered.filter(
               (order) =>
                 !hasPendingCancellationRequest(order) &&
-                !["entregue", "nao_entregue", "cancelado"].includes(
-                  order.status,
-                ),
+                activeWorkStatuses.has(getOrderStatusKey(order)),
             ),
+            defaultExpanded: true,
+          },
+          {
+            key: "saiu_para_entrega",
+            title: "Saiu para entrega",
+            description: "Pedidos em rota com entregador",
+            orders: filtered.filter(
+              (order) =>
+                !hasPendingCancellationRequest(order) &&
+                orderStatusIs(order, "saiu_para_entrega"),
+            ),
+            defaultExpanded: false,
           },
           {
             key: "entregues",
             title: "Entregues",
             description: "Finalizados prontos para arquivar",
             orders: filtered.filter(
-              (order) => order.status === "entregue" && isOrderPaid(order),
+              (order) => orderStatusIs(order, "entregue") && isOrderPaid(order),
             ),
+            defaultExpanded: false,
           },
           {
             key: "entregues_aguardando_pagamento",
             title: "Entregues aguardando pagamento",
             description: "Finalizados com pagamento pendente",
             orders: filtered.filter(
-              (order) => order.status === "entregue" && !isOrderPaid(order),
+              (order) => orderStatusIs(order, "entregue") && !isOrderPaid(order),
             ),
+            defaultExpanded: false,
           },
           {
             key: "nao_entregues",
             title: "Não entregues",
             description: "Pedidos com problema relatado pelo entregador",
-            orders: filtered.filter((order) => order.status === "nao_entregue"),
+            orders: filtered.filter((order) =>
+              orderStatusIs(order, "nao_entregue"),
+            ),
+            defaultExpanded: false,
           },
           {
             key: "cancelados",
             title: "Cancelados",
             description: "Pedidos cancelados",
-            orders: filtered.filter((order) => order.status === "cancelado"),
+            orders: filtered.filter((order) =>
+              orderStatusIs(order, "cancelado"),
+            ),
+            defaultExpanded: false,
           },
         ].filter((group) => group.orders.length > 0);
   const bairroGroups: Record<
@@ -1753,6 +1787,13 @@ export function OrdersScreen() {
 
   const toggleBairro = (bairro: string) => {
     setExpandedBairros((p) => ({ ...p, [bairro]: !p[bairro] }));
+  };
+
+  const toggleListGroup = (groupKey: string, defaultExpanded = false) => {
+    setExpandedListGroups((current) => ({
+      ...current,
+      [groupKey]: !(current[groupKey] ?? defaultExpanded),
+    }));
   };
 
   const toggleOrderSelection = (orderId: string) => {
@@ -2177,24 +2218,47 @@ export function OrdersScreen() {
         {/* ── LISTA VIEW ─────────────────────────────── */}
         {(viewMode === "lista" || viewMode === "arquivados") && (
           <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 space-y-4">
-            {listGroups.map((group) => (
-              <section
-                key={group.key}
-                className="rounded-xl border border-gray-200 bg-white overflow-hidden"
-              >
-                <div className="flex items-center justify-between gap-3 border-b border-gray-100 bg-white px-4 py-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-800">
-                      {group.title}
-                    </h3>
-                    <p className="text-xs text-gray-500">{group.description}</p>
-                  </div>
-                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
-                    {group.orders.length}
-                  </span>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {group.orders.map((order, orderIndex) => {
+            {listGroups.map((group) => {
+              const isExpanded =
+                expandedListGroups[group.key] ?? group.defaultExpanded ?? false;
+
+              return (
+                <section
+                  key={group.key}
+                  className="rounded-xl border border-gray-200 bg-white overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      toggleListGroup(group.key, group.defaultExpanded)
+                    }
+                    aria-expanded={isExpanded}
+                    className={`flex w-full items-center justify-between gap-3 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50 ${
+                      isExpanded ? "border-b border-gray-100" : ""
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
+                      )}
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-gray-800">
+                          {group.title}
+                        </h3>
+                        <p className="truncate text-xs text-gray-500">
+                          {group.description}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                      {group.orders.length}
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="divide-y divide-gray-100">
+                      {group.orders.map((order, orderIndex) => {
                     const statusDisplay = getStatusLabel(order.status);
                     const sc = statusColor[order.status] ||
                       statusColor["Recebido"] || {
@@ -2357,7 +2421,7 @@ export function OrdersScreen() {
                               <div className="flex items-center gap-3 mt-1">
                                 <span className="text-xs text-gray-400 flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
-                                  {formatBrasiliaTime(
+                                  {formatOrderDateTime(
                                     order.realizado_em ||
                                       order.criado_em ||
                                       order.created_at ||
@@ -2416,9 +2480,11 @@ export function OrdersScreen() {
                       </div>
                     );
                   })}
-                </div>
-              </section>
-            ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
 
             {hasMore && (
               <div className="p-4 flex justify-center">
@@ -3010,7 +3076,7 @@ export function OrdersScreen() {
                 </span>
               </div>
               <div className="text-xs text-gray-400 mt-0.5">
-                {formatBrasiliaTime(
+                {formatOrderDateTime(
                   selected.realizado_em ||
                     selected.criado_em ||
                     selected.created_at ||
@@ -3022,7 +3088,7 @@ export function OrdersScreen() {
               {selected.agendado_para && (
                 <div className="text-xs text-amber-700 mt-1">
                   Entrega agendada para{" "}
-                  {formatBrasiliaTime(selected.agendado_para)}
+                  {formatOrderDateTime(selected.agendado_para)}
                 </div>
               )}
             </div>
