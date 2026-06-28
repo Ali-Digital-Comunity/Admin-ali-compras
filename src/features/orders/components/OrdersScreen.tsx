@@ -155,11 +155,21 @@ const isPendingCardPaymentForDelivery = (order: any, payments: any[] = []) => {
   const payment = getPreferredOrderPayment(order, payments);
   const status = normalizePaymentText(getOrderPaymentStatus(order, payment));
   const method = normalizePaymentText(getOrderPaymentMethod(order, payment));
+  const blockedStatuses = new Set(["aprovado", "confirmado", "rejeitado", "cancelado", "estornado", "expirado"]);
   return (
-    status === "pendente" &&
+    !isOrderPaid(order, payments) &&
+    !blockedStatuses.has(status) &&
     (method.includes("cartao") ||
       isCardOnDeliveryPayment(payment) ||
       isCardOnDeliveryPayment(order?.pagamento))
+  );
+};
+const hasPendingPaymentForDisplay = (order: any, payments: any[] = []) => {
+  const payment = getPreferredOrderPayment(order, payments);
+  return (
+    normalizePaymentText(getOrderPaymentStatus(order, payment)) === "pendente" ||
+    isOrderPendingCash(order, payments) ||
+    isPendingCardPaymentForDelivery(order, payments)
   );
 };
 const canOrderProceedForFulfillment = (order: any, payments: any[] = []) =>
@@ -2201,14 +2211,8 @@ export function OrdersScreen() {
                       order,
                       orderPayments,
                     );
-                    const orderPayment = getPreferredOrderPayment(
-                      order,
-                      orderPayments,
-                    );
                     const orderPaymentIsPending =
-                      normalizePaymentText(
-                        getOrderPaymentStatus(order, orderPayment),
-                      ) === "pendente";
+                      hasPendingPaymentForDisplay(order, orderPayments);
                     const canSelectForDelivery =
                       isEntrega &&
                       orderCanProceed &&
@@ -2612,14 +2616,8 @@ export function OrdersScreen() {
                           order,
                           orderPayments,
                         );
-                        const orderPayment = getPreferredOrderPayment(
-                          order,
-                          orderPayments,
-                        );
                         const orderPaymentIsPending =
-                          normalizePaymentText(
-                            getOrderPaymentStatus(order, orderPayment),
-                          ) === "pendente";
+                          hasPendingPaymentForDisplay(order, orderPayments);
                         const canSelectForDelivery =
                           orderCanProceed &&
                           !assignedOrderIds.has(order.id) &&
