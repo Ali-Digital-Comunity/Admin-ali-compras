@@ -205,6 +205,8 @@ const canTakeSalaoOrderToTable = (order: any) =>
   getOrderType(order) === "salao" &&
   getBackendStatus(order?.status || "") === "pronto" &&
   getSalaoComandaStatus(order) === "aberta";
+const canForceFinalizeOrder = (order: any) =>
+  Boolean(order?.id) && getBackendStatus(order?.status || "") !== "entregue";
 const formatOrderDateTime = (value: Date | string) =>
   formatBrasiliaDate(value, { dateStyle: "short", timeStyle: "short" });
 const canSelectOrderForDeliveryAssignment = (
@@ -261,6 +263,8 @@ export function OrdersScreen() {
   const [unassigningDeliveryId, setUnassigningDeliveryId] = useState("");
   const [updatingStatusOrderId, setUpdatingStatusOrderId] = useState("");
   const [confirmingCashPaymentId, setConfirmingCashPaymentId] = useState("");
+  const [forceFinalizingOrderId, setForceFinalizingOrderId] = useState("");
+  const [forceFinalizeCandidate, setForceFinalizeCandidate] = useState<any | null>(null);
   const [cancellingOrderId, setCancellingOrderId] = useState("");
   const [archivingOrderId, setArchivingOrderId] = useState("");
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -1178,6 +1182,56 @@ export function OrdersScreen() {
     }
   };
 
+  const openForceFinalizeConfirm = (order: any, event?: MouseEvent) => {
+    event?.stopPropagation();
+    if (!canForceFinalizeOrder(order)) return;
+    setForceFinalizeCandidate(order);
+  };
+
+  const closeForceFinalizeConfirm = () => {
+    if (forceFinalizingOrderId) return;
+    setForceFinalizeCandidate(null);
+  };
+
+  const forceFinalizeOrder = async () => {
+    const order = forceFinalizeCandidate;
+    if (!order?.id) return;
+
+    try {
+      setForceFinalizingOrderId(order.id);
+      const response = await api.patch(`/pedidos/${order.id}/finalizar-forcado`);
+      const updatedOrder = response.data?.data || response.data || {};
+      const paymentWasForced = response.data?.meta?.pagamento_marcado_como_pago === true;
+      const accountWasForced = response.data?.meta?.conta_marcada_como_paga === true;
+
+      setOrders((prev) =>
+        prev.map((item) =>
+          item.id === order.id ? { ...item, ...updatedOrder, status: "entregue" } : item,
+        ),
+      );
+      if (selected?.id === order.id) {
+        setSelected((prev: any) =>
+          prev ? { ...prev, ...updatedOrder, status: "entregue" } : prev,
+        );
+        const payments = await fetchOrderPayments(order.id);
+        setSelectedPayments(payments);
+      }
+      await fetchOrders(1, true, { silent: true });
+      setForceFinalizeCandidate(null);
+      showSystemNotice(
+        paymentWasForced || accountWasForced
+          ? "Pedido finalizado. A conta também foi marcada como paga."
+          : "Pedido finalizado.",
+      );
+    } catch (error) {
+      showSystemNotice(
+        getApiErrorMessage(error, "Não foi possível finalizar o pedido."),
+      );
+    } finally {
+      setForceFinalizingOrderId("");
+    }
+  };
+
   const cancelOrder = async (id: string, approval?: MfaApproval) => {
     try {
       setCancellingOrderId(id);
@@ -1624,6 +1678,7 @@ export function OrdersScreen() {
   const selectedCashChangeInfo = formatCashChangeInfo(selectedPayment);
   const selectedIsCardOnDelivery = isCardOnDeliveryPayment(selectedPayment);
   const selectedStatusUpdating = updatingStatusOrderId === selected?.id;
+  const selectedForceFinalizing = forceFinalizingOrderId === selected?.id;
   const selectedCancelling = cancellingOrderId === selected?.id;
   const selectedArchiving = archivingOrderId === selected?.id;
   const selectedCancellationPending = hasPendingCancellationRequest(selected);
@@ -1636,6 +1691,7 @@ export function OrdersScreen() {
     resolvingCancellationOrderId === selected?.id;
   const selectedOrderUpdating =
     selectedStatusUpdating ||
+    selectedForceFinalizing ||
     selectedCancelling ||
     selectedArchiving ||
     selectedCancellationResolving;
@@ -1666,6 +1722,12 @@ export function OrdersScreen() {
     canTakeSalaoOrderToTable(selected) &&
     selectedCanProceed &&
     !selectedCancellationPending;
+  const selectedCanForceFinalize = canForceFinalizeOrder(selected);
+  const forceFinalizeCandidatePayments =
+    forceFinalizeCandidate?.id === selected?.id ? selectedPayments : [];
+  const forceFinalizeWillSettlePayment =
+    Boolean(forceFinalizeCandidate) &&
+    !isOrderPaid(forceFinalizeCandidate, forceFinalizeCandidatePayments);
   const selectedCustomerName =
     selected?.cliente?.nome || selected?.customer || "";
   const selectedOrderNumber =
@@ -2478,6 +2540,23 @@ export function OrdersScreen() {
                             >
                               <Eye className="w-3 h-3" /> Detalhes
                             </button>
+                            {canForceFinalizeOrder(order) && (
+                              <button
+                                type="button"
+                                onClick={(event) =>
+                                  openForceFinalizeConfirm(order, event)
+                                }
+                                disabled={forceFinalizingOrderId === order.id}
+                                className="mt-1 text-xs flex items-center gap-1 ml-auto font-semibold text-red-600 hover:underline disabled:cursor-wait disabled:opacity-70"
+                              >
+                                {forceFinalizingOrderId === order.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <AlertTriangle className="h-3 w-3" />
+                                )}
+                                Pular etapas
+                              </button>
+                            )}
                             {canTakeToTable && (
                               <button
                                 type="button"
@@ -2843,6 +2922,23 @@ export function OrdersScreen() {
                                   <Eye className="w-3 h-3" />
                                 </button>
                               </div>
+                              {canForceFinalizeOrder(order) && (
+                                <button
+                                  type="button"
+                                  onClick={(event) =>
+                                    openForceFinalizeConfirm(order, event)
+                                  }
+                                  disabled={forceFinalizingOrderId === order.id}
+                                  className="mt-1 ml-auto flex items-center gap-1 text-[11px] font-semibold text-red-600 hover:underline disabled:cursor-wait disabled:opacity-70"
+                                >
+                                  {forceFinalizingOrderId === order.id ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <AlertTriangle className="h-3 w-3" />
+                                  )}
+                                  Pular etapas
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -2872,6 +2968,69 @@ export function OrdersScreen() {
           onConfirmStepChange={setConfirmStep}
           onConfirm={handleConfirmDeliveryAssignment}
         />
+      )}
+
+      {forceFinalizeCandidate && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Finalizar pedido agora?
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Esta ação pula todas as etapas operacionais e marca o pedido
+                  como entregue.
+                </p>
+              </div>
+            </div>
+
+            {forceFinalizeWillSettlePayment && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                O pagamento ainda não consta como pago. Ao confirmar, a conta
+                também será finalizada como paga.
+              </div>
+            )}
+
+            <div className="mt-5 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+              Use apenas quando precisar encerrar o pedido manualmente,
+              ignorando entregador, pagamento pendente, agendamento e etapas
+              intermediárias.
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeForceFinalizeConfirm}
+                disabled={Boolean(forceFinalizingOrderId)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-70"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={() => void forceFinalizeOrder()}
+                disabled={Boolean(forceFinalizingOrderId)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-wait disabled:opacity-70"
+              >
+                {forceFinalizingOrderId ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Finalizando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Confirmar finalização
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {checklistOrder && (
@@ -3681,6 +3840,28 @@ export function OrdersScreen() {
                     <>
                       <CheckCircle2 className="w-4 h-4" />
                       Levar pra mesa
+                    </>
+                  )}
+                </button>
+              )}
+              {selectedCanForceFinalize && (
+                <button
+                  onClick={(event) =>
+                    openForceFinalizeConfirm(selected, event)
+                  }
+                  disabled={selectedOrderUpdating}
+                  aria-busy={selectedForceFinalizing}
+                  className="w-full py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium transition-colors hover:bg-red-700 disabled:cursor-wait disabled:opacity-70 flex items-center justify-center gap-2"
+                >
+                  {selectedForceFinalizing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Finalizando...
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-4 h-4" />
+                      Pular etapas e finalizar
                     </>
                   )}
                 </button>
