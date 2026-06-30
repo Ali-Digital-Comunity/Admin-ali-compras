@@ -102,6 +102,15 @@ const formatCurrency = (value: unknown) =>
   `R$ ${Number(value || 0)
     .toFixed(2)
     .replace(".", ",")}`;
+const getDailyTicketNumber = (order: any) => {
+  const formatted = String(order?.numero_comanda_codigo || "").trim();
+  if (formatted) return formatted;
+
+  const numeric = Number(order?.numero_comanda_diario);
+  return Number.isFinite(numeric) && numeric > 0
+    ? String(numeric).padStart(5, "0")
+    : "";
+};
 const toCurrencyCents = (value: unknown) =>
   Math.round(Number(value || 0) * 100);
 const calculateMissingItemsRefundAfterDiscount = (
@@ -1570,8 +1579,10 @@ export function OrdersScreen() {
   const filtered = orders.filter((o) => {
     const customerName = (o.cliente?.nome || o.customer || "").toLowerCase();
     const orderId = (o.numero_pedido || o.id || "").toLowerCase();
+    const dailyTicket = getDailyTicketNumber(o).toLowerCase();
     const matchSearch =
       customerName.includes(search.toLowerCase()) ||
+      dailyTicket.includes(search.toLowerCase()) ||
       orderId.includes(search.toLowerCase());
 
     // No longer filtering by status/type in memory as we do it in API
@@ -2156,7 +2167,7 @@ export function OrdersScreen() {
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Pedido ou cliente"
+                    placeholder="Comanda, pedido ou cliente"
                     className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1"
                   />
                 </div>
@@ -2364,6 +2375,7 @@ export function OrdersScreen() {
                     const failureReason = getDeliveryFailureReason(order);
                     const canTakeToTable = canTakeSalaoOrderToTable(order);
                     const takingToTable = updatingStatusOrderId === order.id;
+                    const dailyTicketNumber = getDailyTicketNumber(order);
                     const rowBgClass = isSelectedForDelivery
                       ? ""
                       : orderIndex % 2 === 0
@@ -2429,6 +2441,11 @@ export function OrdersScreen() {
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
+                                {dailyTicketNumber && (
+                                  <span className="rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-sm font-black text-slate-900">
+                                    Comanda {dailyTicketNumber}
+                                  </span>
+                                )}
                                 <span className="text-sm font-semibold text-gray-800">
                                   {order.numero_pedido || order.id}
                                 </span>
@@ -2767,6 +2784,7 @@ export function OrdersScreen() {
                           order.id,
                         );
                         const failureReason = getDeliveryFailureReason(order);
+                        const dailyTicketNumber = getDailyTicketNumber(order);
                         return (
                           <div
                             key={order.id}
@@ -2837,6 +2855,11 @@ export function OrdersScreen() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
+                                {dailyTicketNumber && (
+                                  <span className="rounded-md border border-slate-300 bg-white px-2 py-0.5 font-mono text-sm font-black text-slate-900">
+                                    Comanda {dailyTicketNumber}
+                                  </span>
+                                )}
                                 <span className="text-sm font-semibold text-gray-800">
                                   {order.numero_pedido || order.id}
                                 </span>
@@ -3237,6 +3260,11 @@ export function OrdersScreen() {
                 <h2 className="text-gray-900 font-semibold">
                   Pedido {selected.numero_pedido || selected.id}
                 </h2>
+                {getDailyTicketNumber(selected) && (
+                  <span className="rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-sm font-black text-slate-900">
+                    Comanda {getDailyTicketNumber(selected)}
+                  </span>
+                )}
                 <span
                   className="px-2 py-0.5 rounded-full text-xs font-medium"
                   style={{
