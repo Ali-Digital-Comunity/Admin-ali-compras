@@ -202,6 +202,16 @@ const escapePrintHtml = (value: unknown) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+const getDailyTicketNumber = (value: any) => {
+  const formatted = String(value?.numero_comanda_codigo || "").trim();
+  if (formatted) return formatted;
+
+  const numeric = Number(value?.numero_comanda_diario);
+  return Number.isFinite(numeric) && numeric > 0
+    ? String(numeric).padStart(5, "0")
+    : "";
+};
+
 const salaoItemAuthorLabel = (item: any) => {
   if (item?.autor_label) return item.autor_label;
   if (item?.participante_id)
@@ -904,6 +914,7 @@ export function SalaoPage() {
       .filter((item) => item.status !== "cancelado")
       .reduce((sum, item) => sum + Number(item.preco_total || 0), 0);
     const splitPeople = Number(comanda.quantidade_pessoas_divisao || 1);
+    const dailyTicketNumber = getDailyTicketNumber(comanda);
     const division =
       splitPeople > 1
         ? `<div class="divider"></div><div class="row"><span>Divisão (${splitPeople} pessoas)</span><span>R$ ${formatMoney(total / splitPeople)} por pessoa</span></div>`
@@ -912,10 +923,11 @@ export function SalaoPage() {
     printWindow.document.write(`<!DOCTYPE html>
       <html lang="pt-BR"><head><meta charset="UTF-8"><title>Comanda ${escapePrintHtml(comanda.numero_comanda)}</title>
       <style>
-        *{margin:0;padding:0;box-sizing:border-box} body{font-family:'Courier New',Courier,monospace;max-width:300px;margin:0 auto;padding:16px;font-size:12px;color:#000}.center{text-align:center}.bold{font-weight:bold}.large{font-size:15px}.divider-solid{border-top:1px solid #000;margin:8px 0}.divider{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px;margin-bottom:3px}.row-total{display:flex;justify-content:space-between;gap:8px;font-size:14px;font-weight:bold;margin-bottom:3px}.person{padding:8px 0}.person-title{font-weight:bold;margin-bottom:6px}.subtotal{margin-top:6px;font-weight:bold}.option{font-size:10px;margin:0 0 2px 16px}.obs{font-size:10px;color:#555;margin:0 0 5px 16px;font-style:italic}.tag{display:inline-block;border:1px solid #000;padding:1px 6px;font-size:11px;margin:2px 0}p{margin-bottom:4px}@media print{body{padding:0}}
+        *{margin:0;padding:0;box-sizing:border-box} body{font-family:'Courier New',Courier,monospace;max-width:300px;margin:0 auto;padding:16px;font-size:12px;color:#000}.center{text-align:center}.bold{font-weight:bold}.large{font-size:15px}.divider-solid{border-top:1px solid #000;margin:8px 0}.divider{border-top:1px dashed #000;margin:8px 0}.row{display:flex;justify-content:space-between;gap:8px;margin-bottom:3px}.row-total{display:flex;justify-content:space-between;gap:8px;font-size:14px;font-weight:bold;margin-bottom:3px}.ticket-number{border:2px solid #000;padding:8px 4px;margin:8px 0;text-align:center}.ticket-label{font-size:11px;font-weight:bold;letter-spacing:0}.ticket-value{display:block;font-size:38px;line-height:1;font-weight:900;margin-top:3px}.person{padding:8px 0}.person-title{font-weight:bold;margin-bottom:6px}.subtotal{margin-top:6px;font-weight:bold}.option{font-size:10px;margin:0 0 2px 16px}.obs{font-size:10px;color:#555;margin:0 0 5px 16px;font-style:italic}.tag{display:inline-block;border:1px solid #000;padding:1px 6px;font-size:11px;margin:2px 0}p{margin-bottom:4px}@media print{body{padding:0}}
       </style></head><body>
         <div class="center">
           <p class="bold large">COMANDA DO SALÃO</p>
+          ${dailyTicketNumber ? `<div class="ticket-number"><span class="ticket-label">COMANDA DO DIA</span><span class="ticket-value">${escapePrintHtml(dailyTicketNumber)}</span></div>` : ""}
           <p>Comanda: <span class="bold">${escapePrintHtml(comanda.numero_comanda)}</span></p>
           <p>Data: ${new Date().toLocaleString("pt-BR")}</p>
           <span class="tag">MESA ${escapePrintHtml(comanda.mesa?.numero || "-")}</span>
