@@ -102,8 +102,20 @@ const getCancellationRequest = (order: any) =>
 const hasPendingCancellationRequest = (order: any) =>
   getCancellationRequest(order)?.status === "pendente";
 const parseCurrencyInput = (value: string) => Number(value.replace(",", "."));
+const parseCurrencyNumber = (value: unknown) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+
+  const normalized = text.includes(",")
+    ? text.replace(/\./g, "").replace(",", ".")
+    : text;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+};
 const formatCurrency = (value: unknown) =>
-  `R$ ${Number(value || 0)
+  `R$ ${parseCurrencyNumber(value)
     .toFixed(2)
     .replace(".", ",")}`;
 const getDailyTicketNumber = (order: any) => {
@@ -116,7 +128,24 @@ const getDailyTicketNumber = (order: any) => {
     : "";
 };
 const toCurrencyCents = (value: unknown) =>
-  Math.round(Number(value || 0) * 100);
+  Math.round(parseCurrencyNumber(value) * 100);
+const firstPresent = (...values: unknown[]) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+const normalizePaymentText = (value: any) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+const getPaymentOnDeliveryMethod = (payment: any) =>
+  normalizePaymentText(
+    firstPresent(
+      payment?.pagamento_entrega_tipo,
+      payment?.paymentOnDeliveryMethod,
+      payment?.metadata?.pagamento_entrega_tipo,
+    ),
+  );
+const isCardOnDeliveryPayment = (payment: any) =>
+  getPaymentOnDeliveryMethod(payment) === "cartao";
 const calculateMissingItemsRefundAfterDiscount = (
   order: any,
   grossRefundValue: number,
@@ -138,32 +167,69 @@ const calculateMissingItemsRefundAfterDiscount = (
   );
   return Math.max(0, grossRefundInCents - allocatedDiscountInCents) / 100;
 };
-const formatCashChangeInfo = (payment: any) => {
-  if (payment?.forma_pagamento !== "dinheiro" && payment?.method !== "dinheiro") {
+const formatCashChangeInfo = (payment: any, order?: any) => {
+  const method = normalizePaymentText(
+    firstPresent(
+      payment?.forma_pagamento,
+      payment?.metodo,
+      payment?.method,
+      order?.pagamento?.forma_pagamento,
+      order?.pagamento?.metodo,
+      order?.pagamento?.method,
+      order?.payment,
+    ),
+  );
+  const paymentOnDeliveryMethod =
+    getPaymentOnDeliveryMethod(payment) ||
+    getPaymentOnDeliveryMethod(order?.pagamento);
+  const isCashPayment =
+    method === "dinheiro" || paymentOnDeliveryMethod === "dinheiro";
+
+  if (!isCashPayment) {
     return "";
   }
 
-  if (isCardOnDeliveryPayment(payment)) {
+  if (
+    isCardOnDeliveryPayment(payment) ||
+    isCardOnDeliveryPayment(order?.pagamento)
+  ) {
     return "Cobrar com cartão na entrega";
   }
 
   if (payment?.sem_troco === true) return "Não precisa de troco";
 
-  if (payment?.troco_para != null) {
-    return `Troco para ${formatCurrency(payment.troco_para)} · devolver ${formatCurrency(payment.troco_valor || 0)}`;
+  if (order?.pagamento?.sem_troco === true) return "Não precisa de troco";
+
+  const changeFor = firstPresent(
+    payment?.troco_para,
+    order?.pagamento?.troco_para,
+    order?.troco_para,
+  );
+
+  if (changeFor !== undefined) {
+    const explicitChange = firstPresent(
+      payment?.troco_valor,
+      order?.pagamento?.troco_valor,
+      order?.troco_valor,
+    );
+    const orderTotal = firstPresent(
+      payment?.valor,
+      order?.valor_total,
+      order?.total,
+    );
+    const changeValue =
+      explicitChange !== undefined
+        ? parseCurrencyNumber(explicitChange)
+        : parseCurrencyNumber(changeFor) - parseCurrencyNumber(orderTotal);
+    const safeChangeValue = Number.isFinite(changeValue)
+      ? Math.max(0, changeValue)
+      : 0;
+
+    return `Troco para ${formatCurrency(changeFor)} · devolver ${formatCurrency(safeChangeValue)}`;
   }
 
   return "";
 };
-const isCardOnDeliveryPayment = (payment: any) =>
-  (payment?.pagamento_entrega_tipo ||
-    payment?.paymentOnDeliveryMethod ||
-    payment?.metadata?.pagamento_entrega_tipo) === "cartao";
-const normalizePaymentText = (value: any) =>
-  String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
 const isPendingCardPaymentForDelivery = (order: any, payments: any[] = []) => {
   const payment = getPreferredOrderPayment(order, payments);
   const status = normalizePaymentText(getOrderPaymentStatus(order, payment));
@@ -1975,7 +2041,7 @@ export function OrdersScreen() {
     selected,
     selectedPayment,
   );
-  const selectedCashChangeInfo = formatCashChangeInfo(selectedPayment);
+  const selectedCashChangeInfo = formatCashChangeInfo(selectedPayment, selected);
   const selectedIsCardOnDelivery = isCardOnDeliveryPayment(selectedPayment);
   const selectedStatusUpdating = updatingStatusOrderId === selected?.id;
   const selectedForceFinalizing = forceFinalizingOrderId === selected?.id;
