@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { MouseEvent } from "react";
 import { useSearchParams } from "react-router";
 import {
@@ -18,6 +18,7 @@ import {
   Printer,
   List,
   Archive,
+  CalendarDays,
   Map as MapIcon,
   ChevronDown,
   ChevronRight,
@@ -200,6 +201,7 @@ const ORDER_TABS = [
   { value: "Internos", label: "Pedidos internos" },
 ] as const;
 type OrderTab = (typeof ORDER_TABS)[number]["value"];
+type ArchivedOrderTypeFilter = "Todos" | OrderTab;
 type OrderType = "entrega" | "retirada" | "salao";
 type OrderCounterKey = OrderType | "internos";
 const getOrderType = (order: any): OrderType => {
@@ -221,6 +223,37 @@ const canForceFinalizeOrder = (order: any) =>
   Boolean(order?.id) && getBackendStatus(order?.status || "") !== "entregue";
 const formatOrderDateTime = (value: Date | string) =>
   formatBrasiliaDate(value, { dateStyle: "short", timeStyle: "short" });
+const getOrderArchiveTimestamp = (order: any) =>
+  order?.arquivado_em ||
+  order?.archived_at ||
+  order?.realizado_em ||
+  order?.criado_em ||
+  order?.created_at ||
+  new Date();
+const getValidDate = (value: any) => {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+};
+const padDatePart = (value: number) => String(value).padStart(2, "0");
+const getDateKey = (value: any) => {
+  const date = getValidDate(value);
+  return [
+    date.getFullYear(),
+    padDatePart(date.getMonth() + 1),
+    padDatePart(date.getDate()),
+  ].join("-");
+};
+const formatArchivedDayLabel = (value: any) => {
+  const date = getValidDate(value);
+  return `[${padDatePart(date.getDate())}/${padDatePart(date.getMonth() + 1)}]`;
+};
+const formatArchivedDayDescription = (value: any) =>
+  getValidDate(value).toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
 const canSelectOrderForDeliveryAssignment = (
   order: any,
   assignedOrderIds: Set<any>,
@@ -239,6 +272,8 @@ export function OrdersScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [typeFilter, setTypeFilter] = useState<OrderTab>("Entrega");
+  const [archivedTypeFilter, setArchivedTypeFilter] =
+    useState<ArchivedOrderTypeFilter>("Todos");
   const [bairroFilter, setBairroFilter] = useState("Todos");
   const [selected, setSelected] = useState<any | null>(null);
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
@@ -263,6 +298,8 @@ export function OrdersScreen() {
   const [viewMode, setViewMode] = useState<"lista" | "bairros" | "arquivados">(
     "lista",
   );
+  const [viewTransitioning, setViewTransitioning] = useState(false);
+  const viewTransitionTimeoutRef = useRef<number | null>(null);
   const [expandedBairros, setExpandedBairros] = useState<
     Record<string, boolean>
   >({});
@@ -337,7 +374,15 @@ export function OrdersScreen() {
     setPage(1);
     fetchOrders(1, true);
     fetchAuxiliaryData();
-  }, [statusFilter, typeFilter, viewMode, archivedStartDate, archivedEndDate, fiadoEnabled]);
+  }, [
+    statusFilter,
+    typeFilter,
+    archivedTypeFilter,
+    viewMode,
+    archivedStartDate,
+    archivedEndDate,
+    fiadoEnabled,
+  ]);
 
   useEffect(() => {
     if (!user?.loja_id) return;
@@ -436,8 +481,23 @@ export function OrdersScreen() {
   }, [typeFilter, fiadoEnabled]);
 
   useEffect(() => {
+    if (archivedTypeFilter === "Internos" && !fiadoEnabled) {
+      setArchivedTypeFilter("Todos");
+    }
+  }, [archivedTypeFilter, fiadoEnabled]);
+
+  useEffect(() => {
     setSelectedOrderIds([]);
-  }, [search, statusFilter, typeFilter, bairroFilter, viewMode]);
+  }, [search, statusFilter, typeFilter, archivedTypeFilter, bairroFilter, viewMode]);
+
+  useEffect(
+    () => () => {
+      if (viewTransitionTimeoutRef.current !== null) {
+        window.clearTimeout(viewTransitionTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const fetchAuxiliaryData = async () => {
     try {
@@ -476,14 +536,27 @@ export function OrdersScreen() {
   const getOrderCounterKey = (): OrderCounterKey =>
     typeFilter === "Internos" ? "internos" : (typeFilter.toLowerCase() as OrderType);
 
+  const getActiveOrderTypeFilter = () =>
+    viewMode === "arquivados" ? archivedTypeFilter : typeFilter;
+
   const getOrderQueryParams = (pageNum = 1) => ({
     page: pageNum,
     per_page: PER_PAGE,
     arquivado: viewMode === "arquivados" ? "true" : "false",
     status: frontendToBackendStatus[statusFilter],
-    tipo_pedido: typeFilter === "Internos" ? undefined : typeFilter.toLowerCase(),
-    forma_pagamento: typeFilter === "Internos" ? "fiado" : undefined,
-    excluir_forma_pagamento: typeFilter !== "Internos" && fiadoEnabled ? "fiado" : undefined,
+    tipo_pedido:
+      getActiveOrderTypeFilter() === "Todos" ||
+      getActiveOrderTypeFilter() === "Internos"
+        ? undefined
+        : String(getActiveOrderTypeFilter()).toLowerCase(),
+    forma_pagamento:
+      getActiveOrderTypeFilter() === "Internos" ? "fiado" : undefined,
+    excluir_forma_pagamento:
+      viewMode !== "arquivados" &&
+      getActiveOrderTypeFilter() !== "Internos" &&
+      fiadoEnabled
+        ? "fiado"
+        : undefined,
     busca: search || undefined,
     realizado_em_inicial:
       viewMode === "arquivados" ? archivedStartDate || undefined : undefined,
@@ -531,7 +604,7 @@ export function OrdersScreen() {
             ],
       );
       setPage(pageNum);
-      if (reset) {
+      if (reset && viewMode !== "arquivados") {
         const activeType = getOrderCounterKey();
         setLastOrdersLoadedAt((current) => ({
           ...current,
@@ -599,6 +672,20 @@ export function OrdersScreen() {
     setOrders([]);
     setPage(1);
     await Promise.all([fetchOrders(1, true), fetchAuxiliaryData()]);
+  };
+
+  const changeViewMode = (nextMode: "lista" | "bairros" | "arquivados") => {
+    if (nextMode === viewMode) return;
+
+    if (viewTransitionTimeoutRef.current !== null) {
+      window.clearTimeout(viewTransitionTimeoutRef.current);
+    }
+    setViewTransitioning(true);
+    viewTransitionTimeoutRef.current = window.setTimeout(() => {
+      setViewMode(nextMode);
+      setViewTransitioning(false);
+      viewTransitionTimeoutRef.current = null;
+    }, 90);
   };
 
   const handleNewOrdersButton = () => {
@@ -1650,7 +1737,11 @@ export function OrdersScreen() {
     (order) => canSelectOrderForDeliveryAssignment(order, assignedOrderIds),
   );
   const selectableDeliveryOrders =
-    viewMode === "bairros" ? deliveryOrders : listDeliveryOrders;
+    viewMode === "bairros"
+      ? deliveryOrders
+      : viewMode === "lista"
+        ? listDeliveryOrders
+        : [];
   const selectedDeliveryOrders = selectableDeliveryOrders.filter((order) =>
     selectedOrderIds.includes(order.id),
   );
@@ -1660,6 +1751,7 @@ export function OrdersScreen() {
       ? [
           search,
           statusFilter !== "Todos",
+          archivedTypeFilter !== "Todos",
           archivedStartDate,
           archivedEndDate,
         ].filter(Boolean).length
@@ -1673,7 +1765,20 @@ export function OrdersScreen() {
       (tab.value !== "Salao" || salaoEnabled) &&
       (tab.value !== "Internos" || fiadoEnabled),
   );
-  const canCreateManualOrder = typeFilter !== "Salao" && manualOrderCreationAllowed;
+  const archivedTypeOptions: Array<{
+    value: ArchivedOrderTypeFilter;
+    label: string;
+  }> = [
+    { value: "Todos", label: "Todos" },
+    ...availableOrderTabs.map((tab) => ({
+      value: tab.value as ArchivedOrderTypeFilter,
+      label: tab.label,
+    })),
+  ];
+  const canCreateManualOrder =
+    viewMode !== "arquivados" &&
+    typeFilter !== "Salao" &&
+    manualOrderCreationAllowed;
   const totalNewOrdersCount = availableOrderTabs.reduce(
     (total, tab) => total + newOrdersCount[(tab.value === "Internos" ? "internos" : tab.value.toLowerCase()) as OrderCounterKey],
     0,
@@ -1802,17 +1907,51 @@ export function OrdersScreen() {
   ]);
   const orderStatusIs = (order: any, status: string) =>
     getOrderStatusKey(order) === status;
+  const archivedGroupsMap = filtered.reduce<
+    Record<
+      string,
+      {
+        key: string;
+        title: string;
+        description: string;
+        orders: any[];
+        total: number;
+        timestamp: number;
+      }
+    >
+  >((groups, order) => {
+    const archiveTimestamp = getOrderArchiveTimestamp(order);
+    const key = getDateKey(archiveTimestamp);
+    const date = getValidDate(archiveTimestamp);
+
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        title: formatArchivedDayLabel(date),
+        description: formatArchivedDayDescription(date),
+        orders: [],
+        total: 0,
+        timestamp: date.getTime(),
+      };
+    }
+
+    groups[key].orders.push(order);
+    groups[key].total += Number(order.valor_total || order.total || 0);
+    return groups;
+  }, {});
+  const archivedGroups = Object.values(archivedGroupsMap)
+    .map((group) => ({
+      ...group,
+      orders: group.orders.sort(
+        (a, b) =>
+          getValidDate(getOrderArchiveTimestamp(b)).getTime() -
+          getValidDate(getOrderArchiveTimestamp(a)).getTime(),
+      ),
+    }))
+    .sort((a, b) => b.timestamp - a.timestamp);
   const listGroups =
     viewMode === "arquivados"
-      ? [
-          {
-            key: "arquivados",
-            title: "Arquivados",
-            description: "Pedidos arquivados manualmente",
-            orders: filtered,
-            defaultExpanded: true,
-          },
-        ]
+      ? archivedGroups
       : [
           {
             key: "cancelamentos",
@@ -2047,67 +2186,92 @@ export function OrdersScreen() {
       )}
       {/* Left panel: list or bairros */}
       <div
-        className={`flex flex-col ${selected ? "hidden lg:flex lg:w-1/2 xl:w-3/5" : "flex-1"}`}
+        className={`flex flex-col transition-opacity duration-100 ${viewTransitioning ? "opacity-0" : "opacity-100"} ${selected ? "hidden lg:flex lg:w-1/2 xl:w-3/5" : "flex-1"}`}
       >
         <div className="border-b border-gray-200 bg-white px-4 pt-2">
-          <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Tipos de pedido">
-            {availableOrderTabs.map((tab) => {
-              const active = typeFilter === tab.value;
-              const type = (tab.value === "Internos" ? "internos" : tab.value.toLowerCase()) as OrderCounterKey;
-              const count = newOrdersCount[type];
-              return (
-                <button
-                  key={tab.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => {
-                    if (tab.value !== "Entrega") {
-                      setBairroFilter("Todos");
-                      if (viewMode === "bairros") setViewMode("lista");
-                    }
-                    if (active && count > 0) {
-                      void refreshCurrentOrderTab();
-                    } else {
-                      setTypeFilter(tab.value);
-                    }
-                  }}
-                  className={`relative inline-flex min-w-24 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${active ? "text-gray-900" : "border-transparent text-gray-500 hover:text-gray-800"}`}
-                  style={active ? { borderBottomColor: primaryColor, color: primaryColor } : undefined}
+          {viewMode === "arquivados" ? (
+            <div className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-10 w-10 items-center justify-center rounded-lg text-white"
+                  style={{ backgroundColor: primaryColor }}
                 >
-                  {tab.label}
-                  {count > 0 && (
-                    <span
-                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
-                      style={{ backgroundColor: primaryColor }}
-                      title={`${count} pedido${count === 1 ? " novo" : "s novos"}`}
-                    >
-                      {count > 99 ? "99+" : count}
-                    </span>
-                  )}
-                  {active && checkingNewOrders && (
-                    <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-gray-300" />
-                  )}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              disabled={totalNewOrdersCount === 0}
-              onClick={handleNewOrdersButton}
-              className="relative ml-auto my-1.5 inline-flex h-9 w-9 flex-none items-center justify-center rounded-full text-white shadow-sm transition-all hover:opacity-90 disabled:cursor-default disabled:opacity-45"
-              style={{ backgroundColor: primaryColor }}
-              title={totalNewOrdersCount > 0 ? `${totalNewOrdersCount} pedido${totalNewOrdersCount === 1 ? " novo" : "s novos"}` : "Nenhum pedido novo"}
-              aria-label={totalNewOrdersCount > 0 ? `Atualizar ${totalNewOrdersCount} pedidos novos` : "Nenhum pedido novo"}
-            >
-              <RefreshCw className={`h-4 w-4 ${checkingNewOrders ? "animate-spin" : ""}`} />
-              {totalNewOrdersCount > 0 && (
-                <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold text-white">
-                  {totalNewOrdersCount > 99 ? "99+" : totalNewOrdersCount}
-                </span>
-              )}
-            </button>
-          </div>
+                  <Archive className="h-5 w-5" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold text-gray-900">
+                    Arquivados
+                  </h1>
+                  <p className="text-xs text-gray-500">
+                    Pedidos agrupados por dia de arquivamento
+                  </p>
+                </div>
+              </div>
+              <span className="inline-flex w-fit items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600">
+                <CalendarDays className="h-4 w-4" />
+                {archivedGroups.length} dia{archivedGroups.length !== 1 ? "s" : ""} · {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+          ) : (
+            <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Tipos de pedido">
+              {availableOrderTabs.map((tab) => {
+                const active = typeFilter === tab.value;
+                const type = (tab.value === "Internos" ? "internos" : tab.value.toLowerCase()) as OrderCounterKey;
+                const count = newOrdersCount[type];
+                return (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => {
+                      if (tab.value !== "Entrega") {
+                        setBairroFilter("Todos");
+                        if (viewMode === "bairros") changeViewMode("lista");
+                      }
+                      if (active && count > 0) {
+                        void refreshCurrentOrderTab();
+                      } else {
+                        setTypeFilter(tab.value);
+                      }
+                    }}
+                    className={`relative inline-flex min-w-24 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-colors ${active ? "text-gray-900" : "border-transparent text-gray-500 hover:text-gray-800"}`}
+                    style={active ? { borderBottomColor: primaryColor, color: primaryColor } : undefined}
+                  >
+                    {tab.label}
+                    {count > 0 && (
+                      <span
+                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                        style={{ backgroundColor: primaryColor }}
+                        title={`${count} pedido${count === 1 ? " novo" : "s novos"}`}
+                      >
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    )}
+                    {active && checkingNewOrders && (
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-gray-300" />
+                    )}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                disabled={totalNewOrdersCount === 0}
+                onClick={handleNewOrdersButton}
+                className="relative ml-auto my-1.5 inline-flex h-9 w-9 flex-none items-center justify-center rounded-full text-white shadow-sm transition-all hover:opacity-90 disabled:cursor-default disabled:opacity-45"
+                style={{ backgroundColor: primaryColor }}
+                title={totalNewOrdersCount > 0 ? `${totalNewOrdersCount} pedido${totalNewOrdersCount === 1 ? " novo" : "s novos"}` : "Nenhum pedido novo"}
+                aria-label={totalNewOrdersCount > 0 ? `Atualizar ${totalNewOrdersCount} pedidos novos` : "Nenhum pedido novo"}
+              >
+                <RefreshCw className={`h-4 w-4 ${checkingNewOrders ? "animate-spin" : ""}`} />
+                {totalNewOrdersCount > 0 && (
+                  <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold text-white">
+                    {totalNewOrdersCount > 99 ? "99+" : totalNewOrdersCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
         </div>
         {/* Filters bar */}
         <div className="bg-white border-b border-gray-200 px-4 py-3">
@@ -2125,7 +2289,7 @@ export function OrdersScreen() {
               )}
 
               <div
-                className={`grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 ${viewMode === "arquivados" ? "2xl:grid-cols-4" : viewMode === "bairros" ? "xl:grid-cols-3" : ""}`}
+                className={`grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 ${viewMode === "arquivados" ? "xl:grid-cols-3 2xl:grid-cols-5" : viewMode === "bairros" ? "xl:grid-cols-3" : ""}`}
               >
                 <div className="relative">
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
@@ -2156,6 +2320,27 @@ export function OrdersScreen() {
                     ))}
                   </select>
                 </div>
+
+                {viewMode === "arquivados" && (
+                  <div>
+                    <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">
+                      Tipo
+                    </label>
+                    <select
+                      value={archivedTypeFilter}
+                      onChange={(e) =>
+                        setArchivedTypeFilter(e.target.value as ArchivedOrderTypeFilter)
+                      }
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white text-gray-700 focus:outline-none focus:ring-1"
+                    >
+                      {archivedTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {viewMode === "arquivados" && (
                   <>
@@ -2214,6 +2399,7 @@ export function OrdersScreen() {
                     setSearch("");
                     setStatusFilter("Todos");
                     if (viewMode === "arquivados") {
+                      setArchivedTypeFilter("Todos");
                       setArchivedStartDate("");
                       setArchivedEndDate("");
                     } else {
@@ -2229,7 +2415,7 @@ export function OrdersScreen() {
 
             <div className="flex shrink-0 self-start rounded-lg bg-gray-100 p-0.5 gap-0.5 xl:self-end">
               <button
-                onClick={() => setViewMode("lista")}
+                onClick={() => changeViewMode("lista")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
                 style={
                   viewMode === "lista"
@@ -2241,7 +2427,7 @@ export function OrdersScreen() {
               </button>
               {typeFilter === "Entrega" && (
                 <button
-                  onClick={() => setViewMode("bairros")}
+                  onClick={() => changeViewMode("bairros")}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
                   style={
                     viewMode === "bairros"
@@ -2253,7 +2439,7 @@ export function OrdersScreen() {
                 </button>
               )}
               <button
-                onClick={() => setViewMode("arquivados")}
+                onClick={() => changeViewMode("arquivados")}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
                 style={
                   viewMode === "arquivados"
@@ -2293,10 +2479,18 @@ export function OrdersScreen() {
               )}
             </div>
           ) : viewMode === "arquivados" ? (
-            <span className="text-xs text-gray-500">
-              {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}{" "}
-              arquivado{filtered.length !== 1 ? "s" : ""}
-            </span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-gray-500">
+                {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}{" "}
+                arquivado{filtered.length !== 1 ? "s" : ""} em{" "}
+                {archivedGroups.length} dia{archivedGroups.length !== 1 ? "s" : ""}
+              </span>
+              {activeListGroup && (
+                <span className="text-xs font-semibold text-gray-700">
+                  Dia selecionado: {activeListGroup.title}
+                </span>
+              )}
+            </div>
           ) : (
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-gray-500">
@@ -2319,7 +2513,68 @@ export function OrdersScreen() {
         {/* ── LISTA VIEW ─────────────────────────────── */}
         {(viewMode === "lista" || viewMode === "arquivados") && (
           <>
-            {listGroups.length > 0 && (
+            {listGroups.length > 0 && viewMode === "arquivados" && (
+              <div className="border-b border-gray-200 bg-white px-4 py-3">
+                <div
+                  className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6"
+                  role="tablist"
+                  aria-label="Dias arquivados"
+                >
+                  {listGroups.map((group) => {
+                    const active = activeListGroup?.key === group.key;
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        title={group.description}
+                        onClick={() => setActiveListGroupKey(group.key)}
+                        className={`min-h-24 rounded-lg border p-3 text-left transition-all ${
+                          active
+                            ? "bg-white shadow-sm"
+                            : "bg-gray-50 hover:bg-white hover:shadow-sm"
+                        }`}
+                        style={
+                          active
+                            ? {
+                                borderColor: primaryColor,
+                                boxShadow: `0 0 0 1px ${hexToRgba(primaryColor, 0.22)}`,
+                              }
+                            : { borderColor: "#e5e7eb" }
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className="text-base font-black"
+                            style={{ color: active ? primaryColor : "#111827" }}
+                          >
+                            {group.title}
+                          </span>
+                          <CalendarDays
+                            className="h-4 w-4"
+                            style={{ color: active ? primaryColor : "#94a3b8" }}
+                          />
+                        </div>
+                        <div className="mt-1 text-xs capitalize text-gray-500">
+                          {group.description}
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <span className="rounded-md bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
+                            {group.orders.length} pedido{group.orders.length !== 1 ? "s" : ""}
+                          </span>
+                          <span className="text-xs font-bold text-gray-800">
+                            R$ {group.total.toFixed(2).replace(".", ",")}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {listGroups.length > 0 && viewMode !== "arquivados" && (
               <div className="border-b border-gray-200 bg-white px-4">
                 <div
                   className="flex gap-1 overflow-x-auto"
@@ -2389,6 +2644,7 @@ export function OrdersScreen() {
                     const orderPaymentIsPending =
                       hasPendingPaymentForDisplay(order, orderPayments);
                     const canSelectForDelivery =
+                      viewMode !== "arquivados" &&
                       canSelectOrderForDeliveryAssignment(
                         order,
                         assignedOrderIds,
@@ -2545,12 +2801,14 @@ export function OrdersScreen() {
                               <div className="flex items-center gap-3 mt-1">
                                 <span className="text-xs text-gray-400 flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
-                                  {formatOrderDateTime(
-                                    order.realizado_em ||
-                                      order.criado_em ||
-                                      order.created_at ||
-                                      new Date(),
-                                  )}
+                                  {viewMode === "arquivados"
+                                    ? `Arquivado em ${formatOrderDateTime(getOrderArchiveTimestamp(order))}`
+                                    : formatOrderDateTime(
+                                        order.realizado_em ||
+                                          order.criado_em ||
+                                          order.created_at ||
+                                          new Date(),
+                                      )}
                                 </span>
                                 <span className="text-xs text-gray-400 flex items-center gap-1">
                                   <CreditCard className="w-3 h-3" />
