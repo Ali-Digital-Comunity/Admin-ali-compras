@@ -26,6 +26,15 @@ const formatMoney = (value: unknown) => {
 };
 
 const printableText = (value: unknown) => String(value ?? "").trim();
+const normalizeText = (value: unknown) =>
+  printableText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const firstPresent = (...values: unknown[]) =>
+  values.find((value) => value !== undefined && value !== null && value !== "");
+
 const getDailyTicketNumber = (order: any) => {
   const formatted = printableText(order?.numero_comanda_codigo);
   if (formatted) return formatted;
@@ -38,6 +47,67 @@ const getDailyTicketNumber = (order: any) => {
 const renderItemConfiguration = (item: any) => getOrderItemConfigurationLines(item)
   .map((line) => `<p class="option">${escapeHtml(line)}</p>`)
   .join("");
+
+const getCashChangeLines = (order: any, payment: any, total: unknown) => {
+  const activePayment = payment || order?.pagamento || {};
+  const method = normalizeText(
+    firstPresent(
+      activePayment?.forma_pagamento,
+      activePayment?.metodo,
+      activePayment?.method,
+      order?.pagamento?.forma_pagamento,
+      order?.pagamento?.metodo,
+      order?.pagamento?.method,
+      order?.payment,
+    ),
+  );
+  const paymentOnDeliveryMethod = normalizeText(
+    firstPresent(
+      activePayment?.pagamento_entrega_tipo,
+      activePayment?.paymentOnDeliveryMethod,
+      activePayment?.metadata?.pagamento_entrega_tipo,
+      order?.pagamento?.pagamento_entrega_tipo,
+      order?.pagamento?.paymentOnDeliveryMethod,
+      order?.pagamento?.metadata?.pagamento_entrega_tipo,
+    ),
+  );
+
+  const isCashPayment =
+    method === "dinheiro" || paymentOnDeliveryMethod === "dinheiro";
+
+  if (!isCashPayment || paymentOnDeliveryMethod === "cartao") return "";
+
+  if (activePayment?.sem_troco === true || order?.pagamento?.sem_troco === true) {
+    return '<p class="cash-change"><span class="bold">Troco:</span> Nao precisa de troco</p>';
+  }
+
+  const changeFor = firstPresent(
+    activePayment?.troco_para,
+    order?.pagamento?.troco_para,
+    order?.troco_para,
+  );
+  if (changeFor === undefined) return "";
+
+  const explicitChangeAmount = firstPresent(
+    activePayment?.troco_valor,
+    order?.pagamento?.troco_valor,
+    order?.troco_valor,
+  );
+  const changeForNumber = Number(changeFor);
+  const totalNumber = Number(total);
+  const changeAmountNumber =
+    explicitChangeAmount !== undefined
+      ? Number(explicitChangeAmount)
+      : changeForNumber - totalNumber;
+  const safeChangeAmount = Number.isFinite(changeAmountNumber)
+    ? Math.max(0, changeAmountNumber)
+    : 0;
+
+  return `
+    <p class="cash-change"><span class="bold">Troco para:</span> R$ ${formatMoney(changeFor)}</p>
+    <p class="cash-change"><span class="bold">Troco a levar:</span> R$ ${formatMoney(safeChangeAmount)}</p>
+  `;
+};
 
 const renderStoreHeader = (store: any) => {
   const name = printableText(store?.nome);
@@ -87,7 +157,7 @@ const thermalReceiptStyles = `
     .row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
     .row-total { display: flex; justify-content: space-between; gap: 8px; font-size: 18px; font-weight: 800; margin-bottom: 3px; }
     .obs { font-size: 22px; line-height: 1.12; margin: 0 0 7px 16px; font-style: italic; }
-    .option { font-size: 14px; margin: 0 0 2px 16px; }
+    .option { font-size: 19px; line-height: 1.12; margin: 0 0 5px 16px; }
     p { margin-bottom: 4px; }
     .tag { display: inline-block; border: 1px solid #000; padding: 1px 6px; font-size: 15px; margin: 2px 0; }
     .ticket-number { border: 2px solid #000; padding: 8px 4px; margin: 8px 0; text-align: center; }
@@ -95,10 +165,11 @@ const thermalReceiptStyles = `
     .ticket-value { display: block; font-size: 42px; line-height: 1; font-weight: 900; margin-top: 3px; }
     .order-block { border: 1px dashed #000; padding: 8px; margin-bottom: 8px; }
     .num { display: inline-block; width: 22px; height: 22px; border: 1px solid #000; text-align: center; line-height: 22px; margin-right: 4px; font-size: 14px; }
-    .address-line,
+    .address-line { font-size: 19px; line-height: 1.15; margin-bottom: 5px; }
     .product-row { font-size: 26px; line-height: 1.12; margin-bottom: 7px; }
     .product-row span:first-child { flex: 1; }
     .product-row span:last-child { white-space: nowrap; }
+    .cash-change { font-size: 19px; line-height: 1.15; margin-bottom: 4px; }
     @page { size: 80mm 200mm; margin: 0; }
     @media print {
       html, body { width: 80mm; min-height: 30mm; }
@@ -174,6 +245,7 @@ ${thermalReceiptStyles}
   <div class="row-total"><span>TOTAL A PAGAR</span><span>R$ ${formatMoney(total)}</span></div>
   <div class="divider"></div>
   <p><span class="bold">Pagamento:</span> ${escapeHtml(getOrderPaymentMethod(order, order.pagamento))}</p>
+  ${getCashChangeLines(order, order.pagamento, total)}
   <div class="divider-solid"></div>
   <div class="center" style="margin-top: 8px;">
     <p>Obrigado pela preferência!</p>
