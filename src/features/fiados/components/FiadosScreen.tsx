@@ -40,6 +40,9 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+const apiError = (error: any, fallback: string) =>
+  error?.response?.data?.error?.message || error?.response?.data?.message || fallback;
+
 export function FiadosScreen() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [accounts, setAccounts] = useState<any>({ data: [], page: 1, total_pages: 1, total: 0 });
@@ -80,7 +83,7 @@ export function FiadosScreen() {
       setDashboard(dashboardPayload);
       setAccounts(accountsPayload);
     } catch (caught: any) {
-      setError(caught?.response?.data?.message || "Nao foi possivel carregar fiados.");
+      setError(apiError(caught, "Nao foi possivel carregar fiados."));
     } finally {
       setLoading(false);
     }
@@ -99,7 +102,7 @@ export function FiadosScreen() {
       setDetails(payload);
       setReceipt((current) => ({ ...current, valor: String(payload?.resumo?.saldo_aberto || "") }));
     } catch (caught: any) {
-      setError(caught?.response?.data?.message || "Nao foi possivel carregar detalhes.");
+      setError(apiError(caught, "Nao foi possivel carregar detalhes."));
     } finally {
       setDetailsLoading(false);
     }
@@ -202,7 +205,7 @@ export function FiadosScreen() {
       await loadDetails(selectedAccount);
       setReceipt({ valor: "", forma_pagamento: "dinheiro", observacao: "" });
     } catch (caught: any) {
-      setError(caught?.response?.data?.message || "Nao foi possivel registrar o recebimento.");
+      setError(apiError(caught, "Nao foi possivel registrar o recebimento."));
     } finally {
       setReceiving(false);
     }
