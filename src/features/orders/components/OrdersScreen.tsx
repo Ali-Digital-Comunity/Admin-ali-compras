@@ -28,6 +28,7 @@ import {
   RefreshCw,
   AlertTriangle,
   RotateCcw,
+  Plus,
 } from "lucide-react";
 import api from "@/shared/lib/api";
 import { formatBrasiliaDate } from "@/shared/lib/dateTime";
@@ -65,6 +66,8 @@ import {
 import { DeliveryAssignmentModal } from "@/features/orders/components/DeliveryAssignmentModal";
 import { OrderItemsChecklistModal } from "@/features/orders/components/OrderItemsChecklistModal";
 import { ManualDeliveryOrderModal } from "@/features/orders/components/ManualDeliveryOrderModal";
+import { AddOrderItemsModal } from "@/features/orders/components/AddOrderItemsModal";
+import { PendingPaymentMethodModal } from "@/features/orders/components/PendingPaymentMethodModal";
 import { showSystemNotice } from "@/shared/components/SystemNoticeModal";
 import {
   MfaApprovalModal,
@@ -340,6 +343,8 @@ export function OrdersScreen() {
   const [primaryColor, setPrimaryColor] = useState(PRIMARY);
   const [storePrintData, setStorePrintData] = useState<any | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(false);
+  const [adminAddItemsOrder, setAdminAddItemsOrder] = useState<any | null>(null);
+  const [pendingPaymentMethodOrder, setPendingPaymentMethodOrder] = useState<any | null>(null);
   const [manualOrderCreationAllowed, setManualOrderCreationAllowed] = useState(false);
   const [salaoEnabled, setSalaoEnabled] = useState(false);
   const [fiadoEnabled, setFiadoEnabled] = useState(false);
@@ -903,6 +908,28 @@ export function OrdersScreen() {
       setSelectedRefunds([]);
       return [];
     }
+  };
+
+  const refreshSelectedOrderAfterAdminAdjustment = async (result: any, message: string) => {
+    const nextOrder = result?.pedido || result?.order || selected;
+    if (nextOrder?.id) {
+      setSelected((previous: any) => previous?.id === nextOrder.id ? { ...previous, ...nextOrder } : nextOrder);
+      setOrders((previous) =>
+        previous.map((order) => order.id === nextOrder.id ? { ...order, ...nextOrder } : order),
+      );
+      await fetchOrderItems(nextOrder.id);
+      const payments = Array.isArray(result?.pagamentos)
+        ? result.pagamentos
+        : await fetchOrderPayments(nextOrder.id);
+      if (Array.isArray(result?.pagamentos)) {
+        setSelectedPayments(result.pagamentos);
+      }
+      await fetchOrderRefunds(payments);
+    }
+    await fetchOrders(1, true, { silent: true });
+    setAdminAddItemsOrder(null);
+    setPendingPaymentMethodOrder(null);
+    showSystemNotice(message);
   };
 
   const fetchOrderDelivery = async (orderId: string) => {
@@ -1899,6 +1926,17 @@ export function OrdersScreen() {
       REFUND_ACTIVE_STATUSES.has(String(refund.status || "").toLowerCase()),
     )
     .reduce((sum, refund) => sum + Number(refund.valor || 0), 0);
+  const selectedHasActiveRefund = selectedRefunds.some((refund) =>
+    REFUND_ACTIVE_STATUSES.has(String(refund.status || "").toLowerCase()),
+  );
+  const selectedHasReversedPayment = selectedPayments.some((payment) =>
+    String(payment.status || "").toLowerCase() === "estornado",
+  );
+  const selectedBlocksAdminAdjustment =
+    !selected ||
+    getBackendStatus(selected.status || "") === "cancelado" ||
+    selectedHasActiveRefund ||
+    selectedHasReversedPayment;
   const selectedRefundableAmount = Math.max(
     0,
     Number(
@@ -1978,6 +2016,12 @@ export function OrdersScreen() {
   const adminCannotConfirmDelivery =
     selectedIsDelivery && selectedStatusLabel === "Saiu para Entrega";
   const selectedCanProceed = selectedIsPaid || selectedIsFiado || selectedIsPendingCash || selected?.origem_checkout === "admin_dashboard";
+  const selectedCanAdminAddItems = Boolean(selected?.id) && !selectedBlocksAdminAdjustment;
+  const selectedCanChangePendingPayment =
+    Boolean(selected?.id) &&
+    !selectedBlocksAdminAdjustment &&
+    !selectedIsPaid &&
+    !selectedIsFiado;
   const selectedPickupNeedsCashConfirmation =
     selectedIsPickup && selectedIsPendingCash && !selectedIsCardOnDelivery && selectedStatusLabel === "Pronto";
   const selectedCanTakeSalaoToTable =
@@ -2310,6 +2354,24 @@ export function OrdersScreen() {
     <div className="flex h-full">
       {manualOrderOpen && canCreateManualOrder && user?.loja_id && (
         <ManualDeliveryOrderModal lojaId={user.loja_id} primaryColor={primaryColor} fiadoEnabled={fiadoEnabled} onClose={() => setManualOrderOpen(false)} onCreated={() => fetchOrders(1, true)} />
+      )}
+      {adminAddItemsOrder && (
+        <AddOrderItemsModal
+          order={adminAddItemsOrder}
+          isPaid={isOrderPaid(adminAddItemsOrder, adminAddItemsOrder.id === selected?.id ? selectedPayments : [])}
+          primaryColor={primaryColor}
+          onClose={() => setAdminAddItemsOrder(null)}
+          onAdjusted={(result) => void refreshSelectedOrderAfterAdminAdjustment(result, "Produtos adicionados ao pedido.")}
+        />
+      )}
+      {pendingPaymentMethodOrder && (
+        <PendingPaymentMethodModal
+          order={pendingPaymentMethodOrder}
+          currentMethod={selectedPayment?.metadata?.forma_pagamento_original || selectedPayment?.forma_pagamento || "dinheiro"}
+          primaryColor={primaryColor}
+          onClose={() => setPendingPaymentMethodOrder(null)}
+          onUpdated={(result) => void refreshSelectedOrderAfterAdminAdjustment(result, "Forma de pagamento pendente atualizada.")}
+        />
       )}
       {/* Left panel: list or bairros */}
       <div
@@ -4062,7 +4124,7 @@ export function OrdersScreen() {
                 </p>
               </div>
             )}
-            {!selectedIsSalao && !selectedIsFiado && <div className="bg-white border border-gray-200 rounded-xl p-4">
+            {!selectedIsFiado && <div className="bg-white border border-gray-200 rounded-xl p-4">
               <h4 className="text-gray-700 font-semibold mb-2 flex items-center gap-2">
                 <CreditCard className="w-4 h-4" style={{ color: PRIMARY }} />{" "}
                 Pagamento
@@ -4076,6 +4138,30 @@ export function OrdersScreen() {
                 >
                   {selectedIsPaid ? "✓ " : ""}
                   {selectedPaymentStatus}
+                </div>
+              )}
+              {selectedPayments.length > 1 && (
+                <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    Pagamentos registrados
+                  </div>
+                  {selectedPayments.map((payment) => {
+                    const isComplement = payment?.metadata?.tipo === "pagamento_complementar";
+                    return (
+                      <div key={payment.id} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-gray-700">
+                            {isComplement ? "Complemento" : "Original"} - {getOrderPaymentMethod({ pagamento: payment }, payment)}
+                          </span>
+                          <span className="font-semibold text-gray-800">{formatCurrency(payment.valor)}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-gray-500">
+                          <span className="capitalize">{String(payment.status || "").replace(/_/g, " ")}</span>
+                          {payment.pago_em && <span>{formatBrasiliaDate(payment.pago_em)}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {!selectedIsPaid && (
@@ -4098,6 +4184,16 @@ export function OrdersScreen() {
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   )}
                   Marcar dinheiro como recebido
+                </button>
+              )}
+              {selectedCanChangePendingPayment && (
+                <button
+                  type="button"
+                  onClick={() => setPendingPaymentMethodOrder(selected)}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  Alterar forma de pagamento
                 </button>
               )}
               {selectedCashChangeInfo && (
@@ -4372,6 +4468,13 @@ export function OrdersScreen() {
                 className="w-full py-2.5 rounded-lg text-gray-700 text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
               >
                 <Printer className="w-4 h-4" /> Imprimir Comanda
+              </button>
+              <button
+                onClick={() => setAdminAddItemsOrder(selected)}
+                disabled={!selectedCanAdminAddItems || selectedOrderUpdating}
+                className="w-full py-2.5 rounded-lg text-blue-700 text-sm font-medium border border-blue-200 hover:bg-blue-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Adicionar produtos
               </button>
               {!selectedIsSalao && <button
                 onClick={() => openItemsChecklist(selected)}
