@@ -145,10 +145,12 @@ const getMesaPendingAction = (mesa: any, comanda?: any) => {
 const resolveClientBaseUrl = () => {
   const productionClientUrl = "https://cliente.entregaiapp.com.br";
   const configured = import.meta.env.VITE_CLIENTE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+
   const { hostname, origin } = window.location;
 
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return configured ? configured.replace(/\/$/, "") : origin;
+    return origin;
   }
 
   return productionClientUrl;
