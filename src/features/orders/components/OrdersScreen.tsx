@@ -202,6 +202,11 @@ const ORDER_TABS = [
 ] as const;
 type OrderTab = (typeof ORDER_TABS)[number]["value"];
 type ArchivedOrderTypeFilter = "Todos" | OrderTab;
+type ArchivedDailySummary = {
+  date: string;
+  count: number;
+  total: number;
+};
 type OrderType = "entrega" | "retirada" | "salao";
 type OrderCounterKey = OrderType | "internos";
 const getOrderType = (order: any): OrderType => {
@@ -232,6 +237,8 @@ const getOrderCreatedTimestamp = (order: any) =>
   order?.created_at ||
   order?.realizado_em ||
   new Date();
+const getArchivedOrderTimestamp = (order: any) =>
+  order?.realizado_em || getOrderCreatedTimestamp(order);
 const getValidDate = (value: any) => {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? new Date() : date;
@@ -350,6 +357,10 @@ export function OrdersScreen() {
   const [checkingNewOrders, setCheckingNewOrders] = useState(false);
   const [archivedStartDate, setArchivedStartDate] = useState("");
   const [archivedEndDate, setArchivedEndDate] = useState("");
+  const [archivedDailySummary, setArchivedDailySummary] = useState<
+    ArchivedDailySummary[]
+  >([]);
+  const [loadingArchivedDayKey, setLoadingArchivedDayKey] = useState("");
   const [cancelApprovalOrderId, setCancelApprovalOrderId] = useState("");
   const [cancellationReviewOrder, setCancellationReviewOrder] = useState<
     any | null
@@ -566,6 +577,24 @@ export function OrdersScreen() {
       viewMode === "arquivados" ? archivedEndDate || undefined : undefined,
   });
 
+  const normalizeDailySummary = (summary: any[] = []): ArchivedDailySummary[] =>
+    summary
+      .map((item) => ({
+        date: String(item?.date || item?.data || ""),
+        count: Number(item?.count ?? item?.total_pedidos ?? 0),
+        total: Number(item?.total ?? item?.valor_total ?? 0),
+      }))
+      .filter((item) => item.date && Number.isFinite(item.count))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+  const getArchivedDayQueryParams = (dayKey: string, pageNum = 1) => ({
+    ...getOrderQueryParams(pageNum),
+    page: pageNum,
+    per_page: 100,
+    realizado_em_inicial: dayKey,
+    realizado_em_final: dayKey,
+  });
+
   const getNewOrdersQueryParams = (type: OrderCounterKey) => ({
     tipo_pedido: type === "internos" ? undefined : type,
     forma_pagamento: type === "internos" ? "fiado" : undefined,
@@ -586,6 +615,9 @@ export function OrdersScreen() {
       const response = await api.get("/pedidos", { params });
       const rawData = response.data.data;
       const data = Array.isArray(rawData) ? rawData : rawData?.data || [];
+      const nextDailySummary = Array.isArray(rawData?.daily_summary)
+        ? normalizeDailySummary(rawData.daily_summary)
+        : [];
 
       const more = Array.isArray(rawData)
         ? data.length > PER_PAGE
@@ -594,6 +626,14 @@ export function OrdersScreen() {
         Array.isArray(rawData) && more ? data.slice(0, PER_PAGE) : data;
 
       setHasMore(more);
+      if (reset && viewMode === "arquivados") {
+        setArchivedDailySummary(nextDailySummary);
+        setActiveListGroupKey((currentKey) =>
+          nextDailySummary.some((item) => item.date === currentKey)
+            ? currentKey
+            : nextDailySummary[0]?.date || currentKey,
+        );
+      }
       setOrders((prev) =>
         reset
           ? displayData
@@ -674,6 +714,54 @@ export function OrdersScreen() {
     setOrders([]);
     setPage(1);
     await Promise.all([fetchOrders(1, true), fetchAuxiliaryData()]);
+  };
+
+  const fetchArchivedDayOrders = async (dayKey: string) => {
+    if (!dayKey) return;
+
+    try {
+      setLoadingArchivedDayKey(dayKey);
+
+      const firstResponse = await api.get("/pedidos", {
+        params: getArchivedDayQueryParams(dayKey, 1),
+      });
+      const firstPayload = firstResponse.data.data;
+      const firstData = Array.isArray(firstPayload)
+        ? firstPayload
+        : firstPayload?.data || [];
+      const totalPages = Math.max(1, Number(firstPayload?.total_pages || 1));
+      const allOrders = [...firstData];
+
+      if (totalPages > 1) {
+        const responses = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, index) =>
+            api.get("/pedidos", {
+              params: getArchivedDayQueryParams(dayKey, index + 2),
+            }),
+          ),
+        );
+        responses.forEach((response) => {
+          const payload = response.data.data;
+          allOrders.push(
+            ...(Array.isArray(payload) ? payload : payload?.data || []),
+          );
+        });
+      }
+
+      setOrders(allOrders);
+      setPage(1);
+      setHasMore(false);
+      setActiveListGroupKey(dayKey);
+    } catch (error) {
+      console.error("Error fetching archived day orders:", error);
+      showSystemNotice(
+        "NÃ£o foi possÃ­vel carregar todos os pedidos deste dia.",
+      );
+    } finally {
+      setLoadingArchivedDayKey((currentKey) =>
+        currentKey === dayKey ? "" : currentKey,
+      );
+    }
   };
 
   const changeViewMode = (nextMode: "lista" | "bairros" | "arquivados") => {
@@ -1667,6 +1755,23 @@ export function OrdersScreen() {
         `/pedidos/${order.id}/${shouldRestore ? "restaurar" : "arquivar"}`,
       );
       setOrders((prev) => prev.filter((item) => item.id !== order.id));
+      if (viewMode === "arquivados" && shouldRestore) {
+        const restoredDayKey = getDateKey(getArchivedOrderTimestamp(order));
+        const restoredTotal = Number(order.valor_total || order.total || 0);
+        setArchivedDailySummary((current) =>
+          current
+            .map((item) =>
+              item.date === restoredDayKey
+                ? {
+                    ...item,
+                    count: Math.max(0, item.count - 1),
+                    total: Math.max(0, item.total - restoredTotal),
+                  }
+                : item,
+            )
+            .filter((item) => item.count > 0),
+        );
+      }
       if (selected?.id === order.id) {
         setSelected(null);
       }
@@ -1909,28 +2014,22 @@ export function OrdersScreen() {
   ]);
   const orderStatusIs = (order: any, status: string) =>
     getOrderStatusKey(order) === status;
-  const archivedGroupsMap = filtered.reduce<
+  const archivedOrdersByDay = filtered.reduce<
     Record<
       string,
       {
-        key: string;
-        title: string;
-        description: string;
         orders: any[];
         total: number;
         timestamp: number;
       }
     >
   >((groups, order) => {
-    const createdTimestamp = getOrderCreatedTimestamp(order);
+    const createdTimestamp = getArchivedOrderTimestamp(order);
     const key = getDateKey(createdTimestamp);
     const date = getValidDate(createdTimestamp);
 
     if (!groups[key]) {
       groups[key] = {
-        key,
-        title: formatArchivedDayLabel(date),
-        description: formatArchivedDayDescription(date),
         orders: [],
         total: 0,
         timestamp: date.getTime(),
@@ -1941,16 +2040,42 @@ export function OrdersScreen() {
     groups[key].total += Number(order.valor_total || order.total || 0);
     return groups;
   }, {});
-  const archivedGroups = Object.values(archivedGroupsMap)
-    .map((group) => ({
-      ...group,
-      orders: group.orders.sort(
-        (a, b) =>
-          getValidDate(getOrderCreatedTimestamp(b)).getTime() -
-          getValidDate(getOrderCreatedTimestamp(a)).getTime(),
-      ),
+
+  const fallbackArchivedSummary = Object.entries(archivedOrdersByDay)
+    .map(([date, group]) => ({
+      date,
+      count: group.orders.length,
+      total: group.total,
     }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const archivedSummary =
+    archivedDailySummary.length > 0
+      ? archivedDailySummary
+      : fallbackArchivedSummary;
+  const archivedGroups = archivedSummary
+    .map((summary) => {
+      const orders = archivedOrdersByDay[summary.date]?.orders || [];
+      const date = getValidDate(`${summary.date}T12:00:00`);
+
+      return {
+        key: summary.date,
+        title: formatArchivedDayLabel(date),
+        description: formatArchivedDayDescription(date),
+        orders: orders.sort(
+          (a, b) =>
+            getValidDate(getArchivedOrderTimestamp(b)).getTime() -
+            getValidDate(getArchivedOrderTimestamp(a)).getTime(),
+        ),
+        count: summary.count,
+        total: summary.total,
+        timestamp: date.getTime(),
+      };
+    })
     .sort((a, b) => b.timestamp - a.timestamp);
+  const archivedTotalOrders = archivedSummary.reduce(
+    (total, group) => total + group.count,
+    0,
+  );
   const listGroups =
     viewMode === "arquivados"
       ? archivedGroups
@@ -2205,13 +2330,13 @@ export function OrdersScreen() {
                     Arquivados
                   </h1>
                   <p className="text-xs text-gray-500">
-                    Pedidos agrupados pelo dia em que foram criados
+                    Pedidos agrupados pelo dia em que foram realizados
                   </p>
                 </div>
               </div>
               <span className="inline-flex w-fit items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-600">
                 <CalendarDays className="h-4 w-4" />
-                {archivedGroups.length} dia{archivedGroups.length !== 1 ? "s" : ""} · {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}
+                {archivedGroups.length} dia{archivedGroups.length !== 1 ? "s" : ""} · {archivedTotalOrders} pedido{archivedTotalOrders !== 1 ? "s" : ""}
               </span>
             </div>
           ) : (
@@ -2483,8 +2608,8 @@ export function OrdersScreen() {
           ) : viewMode === "arquivados" ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs text-gray-500">
-                {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}{" "}
-                arquivado{filtered.length !== 1 ? "s" : ""} em{" "}
+                {archivedTotalOrders} pedido{archivedTotalOrders !== 1 ? "s" : ""}{" "}
+                arquivado{archivedTotalOrders !== 1 ? "s" : ""} em{" "}
                 {archivedGroups.length} dia{archivedGroups.length !== 1 ? "s" : ""}
               </span>
               {activeListGroup && (
@@ -2524,6 +2649,7 @@ export function OrdersScreen() {
                 >
                   {listGroups.map((group) => {
                     const active = activeListGroup?.key === group.key;
+                    const loadingDay = loadingArchivedDayKey === group.key;
                     return (
                       <button
                         key={group.key}
@@ -2531,7 +2657,8 @@ export function OrdersScreen() {
                         role="tab"
                         aria-selected={active}
                         title={group.description}
-                        onClick={() => setActiveListGroupKey(group.key)}
+                        onClick={() => void fetchArchivedDayOrders(group.key)}
+                        disabled={loadingDay}
                         className={`min-h-24 rounded-lg border p-3 text-left transition-all ${
                           active
                             ? "bg-white shadow-sm"
@@ -2557,13 +2684,19 @@ export function OrdersScreen() {
                             className="h-4 w-4"
                             style={{ color: active ? primaryColor : "#94a3b8" }}
                           />
+                          {loadingDay && (
+                            <Loader2
+                              className="h-4 w-4 animate-spin"
+                              style={{ color: primaryColor }}
+                            />
+                          )}
                         </div>
                         <div className="mt-1 text-xs capitalize text-gray-500">
                           {group.description}
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-2">
                           <span className="rounded-md bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
-                            {group.orders.length} pedido{group.orders.length !== 1 ? "s" : ""}
+                            {group.count} pedido{group.count !== 1 ? "s" : ""}
                           </span>
                           <span className="text-xs font-bold text-gray-800">
                             R$ {group.total.toFixed(2).replace(".", ",")}
@@ -2904,7 +3037,7 @@ export function OrdersScreen() {
                 </section>
               )}
 
-            {hasMore && (
+            {hasMore && viewMode !== "arquivados" && (
               <div className="p-4 flex justify-center">
                 <button
                   onClick={handleLoadMore}
