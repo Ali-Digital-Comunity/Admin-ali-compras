@@ -227,12 +227,10 @@ const canQuickArchiveOrder = (order: any) =>
   getBackendStatus(order?.status || "") === "entregue";
 const formatOrderDateTime = (value: Date | string) =>
   formatBrasiliaDate(value, { dateStyle: "short", timeStyle: "short" });
-const getOrderArchiveTimestamp = (order: any) =>
-  order?.arquivado_em ||
-  order?.archived_at ||
-  order?.realizado_em ||
+const getOrderCreatedTimestamp = (order: any) =>
   order?.criado_em ||
   order?.created_at ||
+  order?.realizado_em ||
   new Date();
 const getValidDate = (value: any) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -1924,9 +1922,9 @@ export function OrdersScreen() {
       }
     >
   >((groups, order) => {
-    const archiveTimestamp = getOrderArchiveTimestamp(order);
-    const key = getDateKey(archiveTimestamp);
-    const date = getValidDate(archiveTimestamp);
+    const createdTimestamp = getOrderCreatedTimestamp(order);
+    const key = getDateKey(createdTimestamp);
+    const date = getValidDate(createdTimestamp);
 
     if (!groups[key]) {
       groups[key] = {
@@ -1948,8 +1946,8 @@ export function OrdersScreen() {
       ...group,
       orders: group.orders.sort(
         (a, b) =>
-          getValidDate(getOrderArchiveTimestamp(b)).getTime() -
-          getValidDate(getOrderArchiveTimestamp(a)).getTime(),
+          getValidDate(getOrderCreatedTimestamp(b)).getTime() -
+          getValidDate(getOrderCreatedTimestamp(a)).getTime(),
       ),
     }))
     .sort((a, b) => b.timestamp - a.timestamp);
@@ -2207,7 +2205,7 @@ export function OrdersScreen() {
                     Arquivados
                   </h1>
                   <p className="text-xs text-gray-500">
-                    Pedidos agrupados por dia de arquivamento
+                    Pedidos agrupados pelo dia em que foram criados
                   </p>
                 </div>
               </div>
@@ -2806,7 +2804,7 @@ export function OrdersScreen() {
                                 <span className="text-xs text-gray-400 flex items-center gap-1">
                                   <Clock className="w-3 h-3" />
                                   {viewMode === "arquivados"
-                                    ? `Arquivado em ${formatOrderDateTime(getOrderArchiveTimestamp(order))}`
+                                    ? `Criado em ${formatOrderDateTime(getOrderCreatedTimestamp(order))}`
                                     : formatOrderDateTime(
                                         order.realizado_em ||
                                           order.criado_em ||
